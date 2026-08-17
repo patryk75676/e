@@ -1,0 +1,21 @@
+{
+  "name": "discord-bot",
+  "version": "1.0.0",
+  "description": "Bot Discord gotowy do hostowania na SeoHost (VPS / Node.js app)",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "deploy:global": "node src/deploy-commands.js --global"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "license": "MIT"
+}
