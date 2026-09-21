@@ -1,0 +1,39 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Wygeneruj wrapper Gradle
+        run: gradle wrapper --gradle-version 8.9
+
+      - name: Zbuduj APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Odcisk klucza do Google Cloud Console
+        run: |
+          KEYSTORE="$HOME/.android/debug.keystore"
+          keytool -list -v -keystore "$KEYSTORE" -alias androiddebugkey \
+            -storepass android -keypass android | grep -E "SHA1|SHA256" > fingerprint.txt
+          echo "Nazwa pakietu: pl.cyphr.app" >> fingerprint.txt
+          cat fingerprint.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cyphr-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            fingerprint.txt
+          if-no-files-found: error
