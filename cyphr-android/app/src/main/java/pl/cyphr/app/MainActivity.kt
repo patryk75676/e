@@ -285,8 +285,6 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
             try { Api.agents() } catch (e2: Exception) { emptyList() }
         }
         agents = mergeAgents(remote)
-        // Pierwszy na liscie jest najmocniejszy, a przy tym najdrozszy — nikogo na
-        // niego nie wrzucamy bez jego wiedzy.
         if (selectedAgent == null || agents.none { it.id == selectedAgent }) {
             selectedAgent = (agents.firstOrNull { it.id == DEFAULT_AGENT } ?: agents.firstOrNull())?.id
             selectedAgent?.let { Prefs.setAgent(it) }

@@ -5,38 +5,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * U dostawcy prawie kazdy z tych modeli ma blizniaka o tej samej nazwie bez
+ * U dostawcy kazdy z tych modeli ma blizniaka o tej samej nazwie bez
  * dopiska. Skrocona nazwa sprawia, ze nie wiadomo, ktory jest ktory — a model
  * spoza listy serwera konczy sie bledem przy pierwszej wiadomosci. Te testy
  * pilnuja jednego i drugiego.
  */
 class CatalogTest {
 
-    /** Rodziny modeli bez cenzury, jakie wystawia dostawca. */
-    private val bezCenzury = Regex("uncensored|derestricted|heretic|abliterated")
-
     @Test
-    fun `katalog ma dokladnie zamowione modele`() {
+    fun `katalog ma dokladnie te dwa modele i zadnego wiecej`() {
         assertEquals(
-            listOf(
-                "abliterated-model-large-v2",
-                "glm-5.3-flash-uncensored",
-                "qwen3.8-27b-uncensored",
-                "qwen3.5-27b-claude-4.6-opus-reasoning-distilled-derestricted",
-                "gemma-4-31b-sdft-heretic-rp",
-            ),
+            listOf("glm-5.3-flash-uncensored", "qwen3.8-27b-uncensored"),
             CATALOG.map { it.id },
         )
     }
 
     @Test
     fun `kazdy model jest wersja bez cenzury`() {
-        CATALOG.forEach { assertTrue(it.id, bezCenzury.containsMatchIn(it.id)) }
+        CATALOG.forEach { assertTrue(it.id, it.id.endsWith("-uncensored")) }
     }
 
     @Test
-    fun `nazwa mowi wprost ktora to wersja`() {
-        CATALOG.forEach { assertTrue(it.name, bezCenzury.containsMatchIn(it.name.lowercase())) }
+    fun `nazwa mowi wprost ze to wersja bez cenzury`() {
+        CATALOG.forEach { assertTrue(it.name, it.name.contains("Uncensored")) }
     }
 
     @Test
@@ -58,8 +49,8 @@ class CatalogTest {
     }
 
     @Test
-    fun `model domyslny nie jest tym najdrozszym`() {
-        assertTrue(CATALOG.first().id != DEFAULT_AGENT)
+    fun `model domyslny to ten z dluzsza pamiecia`() {
+        assertEquals("glm-5.3-flash-uncensored", DEFAULT_AGENT)
     }
 
     // ---------- laczenie z lista serwera ----------
@@ -88,11 +79,11 @@ class CatalogTest {
     @Test
     fun `kolejnosc jest z katalogu a nie z serwera`() {
         val zSerwera = listOf(
-            Agent("gemma-4-31b-sdft-heretic-rp", "x", ""),
-            Agent("abliterated-model-large-v2", "x", ""),
+            Agent("qwen3.8-27b-uncensored", "x", ""),
+            Agent("glm-5.3-flash-uncensored", "x", ""),
         )
         assertEquals(
-            listOf("abliterated-model-large-v2", "gemma-4-31b-sdft-heretic-rp"),
+            listOf("glm-5.3-flash-uncensored", "qwen3.8-27b-uncensored"),
             mergeAgents(zSerwera).map { it.id },
         )
     }

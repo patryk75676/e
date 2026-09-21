@@ -29,12 +29,6 @@ data class User(
 val CATALOG = listOf(
     // Nazwy jeden do jednego z katalogiem dostawcy. Skrocone myla sie z wersjami
     // ocenzurowanymi, ktore nazywaja sie tak samo bez dopisku.
-    // Kolejnosc: od najmocniejszego do najtanszego.
-    Agent(
-        "abliterated-model-large-v2",
-        "Abliterated Model Large V2",
-        "1 mln kontekstu · najmocniejszy, ale drogi",
-    ),
     Agent(
         "glm-5.3-flash-uncensored",
         "GLM 5.3 Flash Uncensored",
@@ -44,16 +38,6 @@ val CATALOG = listOf(
         "qwen3.8-27b-uncensored",
         "Qwen3.8 27B Uncensored",
         "131 tys. kontekstu",
-    ),
-    Agent(
-        "qwen3.5-27b-claude-4.6-opus-reasoning-distilled-derestricted",
-        "Qwen3.5 27B Opus Distilled Derestricted",
-        "262 tys. kontekstu · najtańszy na dłuższe rozmowy",
-    ),
-    Agent(
-        "gemma-4-31b-sdft-heretic-rp",
-        "Gemma 4 31B Heretic RP",
-        "262 tys. kontekstu · pisanie i odgrywanie postaci",
     ),
 )
 
