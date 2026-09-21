@@ -193,6 +193,8 @@ fun VerifyScreen(
     var code by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
+    // Po odrzuconym kodzie pole samo sie czysci — inaczej trzeba kasowac szesc cyfr.
+    LaunchedEffect(error) { if (error != null && code.length == 6) code = "" }
 
     Column(
         Modifier
@@ -214,7 +216,8 @@ fun VerifyScreen(
 
         BasicCodeField(code, focus) { value ->
             code = value
-            if (value.length == 6) onSubmit(value)
+            // Szosta cyfra wysyla kod sama, ale nie drugi raz w trakcie sprawdzania.
+            if (value.length == 6 && !busy) onSubmit(value)
         }
 
         Spacer(Modifier.height(16.dp))
