@@ -277,23 +277,18 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
 
     suspend fun loadAgents() {
         busy = true
-        // Katalog aplikacji jest zawsze dostepny. Lista z serwera go uzupelnia,
-        // gdy dziala — a gdy nie, klient i tak ma z czego wybierac.
+        // O tym, czym wolno rozmawiac, decyduje serwer. Katalog aplikacji dokłada
+        // nazwy i wchodzi awaryjnie, gdy serwer nie odpowiada.
         val remote = try {
             Api.models().ifEmpty { Api.agents() }
         } catch (e: Exception) {
             try { Api.agents() } catch (e2: Exception) { emptyList() }
         }
-        // Nazwa zawsze z katalogu aplikacji — serwer zapisuje ja skrocona i wtedy
-        // model wyglada jak wersja ocenzurowana. Opis bierzemy z serwera, bo ten
-        // zna aktualna cene.
-        val byId = remote.associateBy { it.id }
-        agents = CATALOG.map { c ->
-            val extra = byId[c.id]?.description.orEmpty()
-            if (extra.isBlank()) c else c.copy(description = "${c.description} · $extra")
-        } + remote.filterNot { r -> CATALOG.any { it.id == r.id } }
+        agents = mergeAgents(remote)
+        // Pierwszy na liscie jest najmocniejszy, a przy tym najdrozszy — nikogo na
+        // niego nie wrzucamy bez jego wiedzy.
         if (selectedAgent == null || agents.none { it.id == selectedAgent }) {
-            selectedAgent = agents.firstOrNull()?.id
+            selectedAgent = (agents.firstOrNull { it.id == DEFAULT_AGENT } ?: agents.firstOrNull())?.id
             selectedAgent?.let { Prefs.setAgent(it) }
         }
         busy = false

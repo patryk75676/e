@@ -29,17 +29,57 @@ data class User(
 val CATALOG = listOf(
     // Nazwy jeden do jednego z katalogiem dostawcy. Skrocone myla sie z wersjami
     // ocenzurowanymi, ktore nazywaja sie tak samo bez dopisku.
+    // Kolejnosc: od najmocniejszego do najtanszego.
     Agent(
-        "qwen3.8-27b-uncensored",
-        "Qwen3.8 27B Uncensored",
-        "131 tys. kontekstu",
+        "abliterated-model-large-v2",
+        "Abliterated Model Large V2",
+        "1 mln kontekstu · najmocniejszy, ale drogi",
     ),
     Agent(
         "glm-5.3-flash-uncensored",
         "GLM 5.3 Flash Uncensored",
         "262 tys. kontekstu",
     ),
+    Agent(
+        "qwen3.8-27b-uncensored",
+        "Qwen3.8 27B Uncensored",
+        "131 tys. kontekstu",
+    ),
+    Agent(
+        "qwen3.5-27b-claude-4.6-opus-reasoning-distilled-derestricted",
+        "Qwen3.5 27B Opus Distilled Derestricted",
+        "262 tys. kontekstu · najtańszy na dłuższe rozmowy",
+    ),
+    Agent(
+        "gemma-4-31b-sdft-heretic-rp",
+        "Gemma 4 31B Heretic RP",
+        "262 tys. kontekstu · pisanie i odgrywanie postaci",
+    ),
 )
+
+/** Model wybierany, gdy uzytkownik jeszcze zadnego nie wskazal. */
+const val DEFAULT_AGENT = "glm-5.3-flash-uncensored"
+
+/**
+ * Laczy katalog aplikacji z lista, ktora dopuszcza serwer.
+ *
+ * Serwer decyduje, czym wolno rozmawiac — model spoza jego listy konczy sie
+ * bledem przy pierwszej wiadomosci, wiec nie ma go po co pokazywac. Z katalogu
+ * bierzemy nazwe i opis, z serwera aktualna cene i sam fakt dostepnosci.
+ * Gdy serwer milczy, zostaje katalog, zeby bylo w co kliknac.
+ */
+fun mergeAgents(remote: List<Agent>): List<Agent> {
+    if (remote.isEmpty()) return CATALOG
+    val order = CATALOG.withIndex().associate { (i, a) -> a.id to i }
+    val known = CATALOG.associateBy { it.id }
+    return remote
+        .map { r ->
+            val c = known[r.id] ?: return@map r
+            val extra = r.description
+            if (extra.isBlank()) c else c.copy(description = "${c.description} · $extra")
+        }
+        .sortedBy { order[it.id] ?: Int.MAX_VALUE }
+}
 
 data class Pack(val id: String, val name: String, val amountUsd: Double)
 data class Agent(val id: String, val name: String, val description: String)
