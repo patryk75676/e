@@ -284,7 +284,14 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
         } catch (e: Exception) {
             try { Api.agents() } catch (e2: Exception) { emptyList() }
         }
-        agents = CATALOG + remote.filterNot { r -> CATALOG.any { it.id == r.id } }
+        // Nazwa zawsze z katalogu aplikacji — serwer zapisuje ja skrocona i wtedy
+        // model wyglada jak wersja ocenzurowana. Opis bierzemy z serwera, bo ten
+        // zna aktualna cene.
+        val byId = remote.associateBy { it.id }
+        agents = CATALOG.map { c ->
+            val extra = byId[c.id]?.description.orEmpty()
+            if (extra.isBlank()) c else c.copy(description = "${c.description} · $extra")
+        } + remote.filterNot { r -> CATALOG.any { it.id == r.id } }
         if (selectedAgent == null || agents.none { it.id == selectedAgent }) {
             selectedAgent = agents.firstOrNull()?.id
             selectedAgent?.let { Prefs.setAgent(it) }

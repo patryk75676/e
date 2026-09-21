@@ -27,15 +27,17 @@ data class User(
  * od tego katalogu — backend przekazuje do dostawcy identyfikator, ktory dostanie.
  */
 val CATALOG = listOf(
+    // Nazwy jeden do jednego z katalogiem dostawcy. Skrocone myla sie z wersjami
+    // ocenzurowanymi, ktore nazywaja sie tak samo bez dopisku.
     Agent(
         "qwen3.8-27b-uncensored",
-        "Qwen3.8 27B",
-        "131 tys. kontekstu · tańszy, dobry do rozmowy",
+        "Qwen3.8 27B Uncensored",
+        "131 tys. kontekstu",
     ),
     Agent(
         "glm-5.3-flash-uncensored",
-        "GLM 5.3 Flash",
-        "262 tys. kontekstu · dwa razy dłuższa pamięć",
+        "GLM 5.3 Flash Uncensored",
+        "262 tys. kontekstu",
     ),
 )
 
@@ -179,6 +181,9 @@ object Api {
             }
         }
 
+    /** Cena po polsku: przecinek, dwie cyfry. */
+    private fun money(v: Double): String = String.format(java.util.Locale("pl"), "%.2f", v)
+
     /** Zrozumiala wiadomosc dla bledu, przy ktorym serwer nie przyslal swojej. */
     internal fun explain(status: Int, retryAfter: Int?): String = when (status) {
         401 -> "Sesja wygasła. Zaloguj się ponownie."
@@ -305,7 +310,13 @@ object Api {
         return (0 until arr.length()).mapNotNull {
             val o = arr.optJSONObject(it) ?: return@mapNotNull null
             val id = o.optString("id").ifBlank { return@mapNotNull null }
-            Agent(id, o.optString("name").ifBlank { id }, o.optString("owned_by"))
+            val p = o.optJSONObject("pricing")
+            val price = p?.let {
+                val i = it.optDouble("input_usd_per_m", 0.0)
+                val out = it.optDouble("output_usd_per_m", 0.0)
+                if (i > 0 || out > 0) "${money(i)} / ${money(out)} $ za mln tokenów" else null
+            }
+            Agent(id, o.optString("name").ifBlank { id }, price ?: o.optString("owned_by"))
         }
     }
 

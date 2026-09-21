@@ -26,6 +26,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -413,10 +414,20 @@ private fun AgentRow(
                     agent.description,
                     color = Mist,
                     fontSize = 13.sp,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            // Pelny identyfikator — po nim widac, ktora wersja modelu to jest.
+            Spacer(Modifier.height(3.dp))
+            Text(
+                agent.id,
+                color = Line,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         IconButton(onClick = onFavourite) {
             Icon(
