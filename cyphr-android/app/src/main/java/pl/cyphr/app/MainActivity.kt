@@ -602,7 +602,13 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                                     user = u
                                                 } catch (_: Exception) {}
                                             } catch (e: Exception) {
-                                                toast = e.message
+                                                // Gdy pada sam dostawca, wina nie lezy po stronie
+                                                // aplikacji ani salda — drugi model zwykle dziala.
+                                                toast = if (e is ApiError && e.code == "upstream_error") {
+                                                    "${e.message} Spróbuj drugiego modelu w zakładce Agenci."
+                                                } else {
+                                                    e.message
+                                                }
                                             } finally { thinking = false }
                                         }
                                     },
