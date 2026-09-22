@@ -174,6 +174,10 @@ function zarejestruj(app) {
       }
 
       await przygotujTabele();
+      // Odstep liczymy dla kazdego adresu, nie tylko dla tych z kontem. Inaczej
+      // druga prosba pod rzad wracala natychmiast dla konta istniejacego, a dla
+      // nieistniejacego dopiero po pytaniu do bazy — i ta roznica tez cos mowi.
+      ostatnioNaAdres.set(email, Date.now());
       const [konta] = await baza().query(
         'SELECT id, blocked FROM users WHERE email = ? LIMIT 1', [email],
       );
@@ -188,7 +192,6 @@ function zarejestruj(app) {
         'expires_at = VALUES(expires_at), created_at = NOW()',
         [email, sha(kod), WAZNOSC_MINUT],
       );
-      ostatnioNaAdres.set(email, Date.now());
       wyslij(email, kod).catch(function (e) { console.error('[reset-hasla] wysylka', e); });
       return odpowiedz(res, 200, { status: 'ok' });
     } catch (e) {
