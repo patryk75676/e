@@ -214,10 +214,13 @@ object Api {
         403 -> "Brak dostępu do tej funkcji."
         404 -> "Serwer nie zna tej funkcji. Zaktualizuj aplikację."
         408, 504 -> "Serwer nie odpowiedział na czas. Spróbuj jeszcze raz."
+        // Limiter liczy zapytania, a nie bledne kody czy hasla. Dawny komunikat
+        // "za duzo prob" brzmial, jakby uzytkownik sie pomylil — a wystarczyly
+        // trzy zapytania pod rzad, zeby go zobaczyc.
         429 -> {
             val za = retryAfter?.let { s -> if (s >= 60) "${s / 60} min" else "$s s" }
-            if (za != null) "Za dużo prób pod rząd. Odczekaj $za i spróbuj ponownie."
-            else "Za dużo prób pod rząd. Odczekaj chwilę i spróbuj ponownie."
+            if (za != null) "Za szybko pod rząd. Odczekaj $za i spróbuj ponownie."
+            else "Za szybko pod rząd. Odczekaj chwilę i spróbuj ponownie."
         }
         502, 503 -> "Serwer się restartuje. Spróbuj za moment."
         in 500..599 -> "Serwer ma chwilową awarię. Spróbuj za moment."

@@ -510,10 +510,23 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                 // z odciskiem palca, tak samo jak przy wejsciu z ekranu
                                 // logowania.
                                 Api.reset(pendingEmail, code, haslo)
-                                Api.login(context, pendingEmail, haslo)?.let { enterApp(it) }
-                                    ?: run { error = "Hasło zmienione. Zaloguj się nim." }
+                                // Haslo jest juz zmienione. Gdyby samo logowanie
+                                // odbilo sie od limitera, nie wolno tego pokazac
+                                // jako bledu zmiany hasla.
+                                try {
+                                    Api.login(context, pendingEmail, haslo)?.let { enterApp(it) }
+                                        ?: run { error = "Hasło zmienione. Zaloguj się nim." }
+                                } catch (e: Exception) {
+                                    route = Route.Auth
+                                    toast = "Hasło zmienione. Zaloguj się nowym hasłem."
+                                }
                             } catch (e: Exception) {
-                                error = e.message
+                                // Odbicie od limitera nie uniewaznia kodu z maila.
+                                error = if (e is ApiError && e.status == 429) {
+                                    "${e.message} Twój kod jest dalej ważny."
+                                } else {
+                                    e.message
+                                }
                             } finally { busy = false }
                         }
                     },

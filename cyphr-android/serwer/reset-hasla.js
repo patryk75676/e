@@ -70,15 +70,50 @@ function wyslij(doKogo, kod) {
     auth: { user: we('SMTP_USER'), pass: we('SMTP_PASS', 'SMTP_PASSWORD') },
     connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 15000,
   });
+  // Kod duzy i osobno, zeby dalo sie go przepisac jednym spojrzeniem.
+  // Wersja tekstowa zostaje dla klientow, ktore nie pokazuja HTML-a.
+  const html = `<!doctype html>
+<html lang="pl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:24px;background:#0b0b0d;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+    <table role="presentation" width="100%" style="max-width:440px;background:#141417;border:1px solid #26262b;border-radius:18px;" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:30px 30px 8px;">
+        <div style="font-size:22px;font-weight:800;letter-spacing:3px;color:#f4f4f5;">CYPHR</div>
+      </td></tr>
+      <tr><td style="padding:0 30px;">
+        <div style="font-size:17px;font-weight:700;color:#f4f4f5;padding-bottom:6px;">Nowe hasło</div>
+        <div style="font-size:14px;line-height:1.6;color:#9b9ba3;">Wpisz ten kod w aplikacji, żeby ustawić nowe hasło.</div>
+      </td></tr>
+      <tr><td style="padding:22px 30px;">
+        <div style="background:#1d1d21;border:1px solid #2e2e35;border-radius:14px;padding:18px;text-align:center;">
+          <div style="font-size:34px;font-weight:800;letter-spacing:10px;color:#f4f4f5;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">${kod}</div>
+        </div>
+      </td></tr>
+      <tr><td style="padding:0 30px 26px;">
+        <div style="font-size:13px;line-height:1.7;color:#9b9ba3;">
+          Kod jest ważny <strong style="color:#c9c9d1;">${WAZNOSC_MINUT} minut</strong> i można go użyć raz.<br>
+          Jeśli to nie Ty prosiłeś o zmianę hasła — zignoruj tę wiadomość.
+          Dotychczasowe hasło dalej działa i nic się nie zmieniło.
+        </div>
+      </td></tr>
+      <tr><td style="padding:16px 30px;border-top:1px solid #26262b;">
+        <div style="font-size:12px;color:#6a6a73;">Wiadomość wysłana automatycznie — nie odpowiadaj na nią.</div>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+
   return t.sendMail({
     from: we('SMTP_FROM') || we('SMTP_USER'),
     to: doKogo,
-    subject: `CYPHR — kod do zmiany hasła: ${kod}`,
+    subject: `Kod do zmiany hasła: ${kod}`,
     text:
       `Twój kod do ustawienia nowego hasła: ${kod}\n\n` +
       `Kod jest ważny ${WAZNOSC_MINUT} minut i można go użyć raz.\n` +
       `Jeśli to nie Ty prosiłeś o zmianę hasła, zignoruj tę wiadomość — ` +
       `dotychczasowe hasło dalej działa.\n`,
+    html,
   });
 }
 

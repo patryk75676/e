@@ -24,7 +24,21 @@ class ApiErrorTest {
     @Test
     fun `limiter bez naglowka wciaz jest zrozumialy`() {
         val m = Api.explain(429, null)
-        assertTrue(m, m.startsWith("Za dużo prób"))
+        assertTrue(m, m.contains("Odczekaj"))
+    }
+
+    /**
+     * Limiter liczy zapytania, nie bledne kody. Komunikat nie moze sugerowac,
+     * ze uzytkownik sie pomylil — bo dostaje go po trzech zapytaniach pod rzad,
+     * nawet gdy wpisal wszystko dobrze.
+     */
+    @Test
+    fun `limiter nie obwinia uzytkownika o bledne proby`() {
+        for (r in listOf(null, 30, 300)) {
+            val m = Api.explain(429, r)
+            // "spróbuj ponownie" jest w porzadku; chodzi o liczenie nieudanych prob.
+            assertTrue(m, !m.contains("dużo prób") && !m.contains("błędn"))
+        }
     }
 
     @Test
