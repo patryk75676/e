@@ -169,6 +169,10 @@ fun Field(
     keyboard: KeyboardType = KeyboardType.Text,
     lines: Int = 1,
 ) {
+    // Podglad hasla. Stan siedzi w polu, a nie u wolajacego, zeby kazde haslo
+    // w aplikacji dostalo to samo zachowanie bez przerabiania ekranow.
+    var widoczne by remember { mutableStateOf(false) }
+
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, color = Mist, fontSize = 14.sp)
         OutlinedTextField(
@@ -176,7 +180,25 @@ fun Field(
             onValueChange = onChange,
             singleLine = lines == 1,
             shape = RoundedCornerShape(14.dp),
-            visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            visualTransformation = if (password && !widoczne) {
+                PasswordVisualTransformation()
+            } else {
+                androidx.compose.ui.text.input.VisualTransformation.None
+            },
+            trailingIcon = if (password) {
+                {
+                    IconButton(onClick = { widoczne = !widoczne }) {
+                        Icon(
+                            painterResource(if (widoczne) R.drawable.ic_eye_off else R.drawable.ic_eye),
+                            contentDescription = if (widoczne) "Ukryj hasło" else "Pokaż hasło",
+                            tint = Mist,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                }
+            } else {
+                null
+            },
             keyboardOptions = KeyboardOptions(keyboardType = keyboard),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Paper, unfocusedBorderColor = Line,
