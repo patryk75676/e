@@ -18,9 +18,28 @@ android {
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${project.findProperty("cyphr.googleWebClientId")}\"")
     }
 
+    signingConfigs {
+        // Jesli obok modulu lezy plik debug.keystore, uzywamy go — dzieki temu
+        // kazda paczka ma ten sam odcisk SHA-1 (BE:B9:D6:34:...) i logowanie
+        // Google dziala bez zmian w konsoli po nowym buildzie. Keystore NIE jest
+        // w repozytorium; CI podklada go z sekretu DEBUG_KEYSTORE_B64. Gdy go
+        // brak (np. czysty klon), zostaje domyslny klucz debugowy Androida i
+        // build i tak przechodzi — tylko odcisk bedzie inny.
+        getByName("debug") {
+            val ks = file("debug.keystore")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = false
