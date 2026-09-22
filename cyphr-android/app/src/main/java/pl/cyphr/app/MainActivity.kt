@@ -1,5 +1,8 @@
 package pl.cyphr.app
 
+import android.os.Build
+import android.content.pm.PackageManager
+import android.content.Context
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -302,11 +305,18 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
             } catch (e: ApiException) {
                 error = when (e.statusCode) {
                     GoogleSignInStatusCodes.SIGN_IN_CANCELLED -> null
+                    // Zamiast ogolnej porady pokazujemy wartosci odczytane z tej
+                    // konkretnej paczki — to je Google porownuje z konsola, wiec
+                    // da sie je zestawic pole po polu bez zgadywania.
                     CommonStatusCodes.DEVELOPER_ERROR ->
-                        "Kod 10: Google nie rozpoznaje tej wersji aplikacji.\n" +
-                            "Klient OAuth Android istnieje, ale jeszcze nie działa — " +
-                            "Google propaguje nowe wpisy od 5 minut do kilku godzin.\n" +
-                            "Sprawdź też, czy w konsoli zgadza się pl.cyphr.app i odcisk SHA-1."
+                        "Kod 10: Google nie rozpoznaje tej wersji aplikacji.\n\n" +
+                            "W Google Cloud Console klient OAuth typu Android musi być " +
+                            "w tym samym projekcie co klient Web i mieć dokładnie:\n\n" +
+                            "pakiet: ${context.packageName}\n" +
+                            "SHA-1: ${podpisSha1(context)}\n" +
+                            "projekt: ${BuildConfig.GOOGLE_WEB_CLIENT_ID.substringBefore('-')}\n\n" +
+                            "Jeśli wszystko się zgadza, Google propaguje nowe wpisy " +
+                            "od 5 minut do kilku godzin."
                     CommonStatusCodes.NETWORK_ERROR -> "Brak połączenia z Google."
                     GoogleSignInStatusCodes.SIGN_IN_FAILED ->
                         "Google odrzucił logowanie. Upewnij się, że ekran zgody OAuth " +
@@ -937,6 +947,29 @@ private fun BuyOverlay(
             }
         }
     }
+}
+
+/**
+ * Odcisk SHA-1 certyfikatu, ktorym podpisano te paczke. To jego Google porownuje
+ * z wpisem w konsoli — wiec pokazujemy wartosc odczytana z zainstalowanej
+ * aplikacji, a nie z dokumentacji czy z pamieci.
+ */
+private fun podpisSha1(context: Context): String = try {
+    val pm = context.packageManager
+    val podpisy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        @Suppress("DEPRECATION")
+        val info = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        info.signingInfo?.apkContentsSigners
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures
+    }
+    val cert = podpisy?.firstOrNull() ?: error("brak podpisu")
+    java.security.MessageDigest.getInstance("SHA-1")
+        .digest(cert.toByteArray())
+        .joinToString(":") { "%02X".format(it) }
+} catch (e: Exception) {
+    "nie udało się odczytać"
 }
 
 private fun validate(register: Boolean, email: String, password: String): String? = when {
