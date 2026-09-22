@@ -30,8 +30,14 @@ jobs:
 
       - name: Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Domyslnie akcja instaluje przestarzaly pakiet "tools", ktorego juz
+          # nie ma w repozytorium SDK — to wywalalo caly krok. Nic nie instalujemy
+          # tutaj, potrzebne pakiety dokladamy nizej wlasnym sdkmanagerem.
+          packages: ''
 
       - name: Zainstaluj platforme i build-tools
+        working-directory: ${{ github.workspace }}
         run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Podloz staly klucz debugowy (jesli ustawiono sekret)
