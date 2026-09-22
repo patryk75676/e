@@ -90,6 +90,7 @@ fun AuthScreen(
     busy: Boolean,
     error: String?,
     onGoogle: () -> Unit,
+    onForgot: (email: String) -> Unit,
     onSubmit: (register: Boolean, email: String, password: String, name: String) -> Unit,
 ) {
     var register by remember { mutableStateOf(false) }
@@ -149,6 +150,78 @@ fun AuthScreen(
         GhostButton(if (register) "Załóż konto" else "Zaloguj się", busy = busy) {
             onSubmit(register, email.trim().lowercase(), password, name.trim())
         }
+
+        // Przy zakladaniu konta nie ma czego odzyskiwac.
+        if (!register) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = { onForgot(email.trim().lowercase()) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Nie pamiętam hasła", color = Mist, fontSize = 14.sp)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * Zmiana zapomnianego hasla: kod z maila i nowe haslo na jednym ekranie,
+ * zeby nie przeklikiwac sie przez trzy pod rzad.
+ */
+@Composable
+fun ResetScreen(
+    email: String,
+    busy: Boolean,
+    error: String?,
+    cooldown: Int,
+    onBack: () -> Unit,
+    onResend: () -> Unit,
+    onSubmit: (code: String, password: String) -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+    var haslo by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(error) { if (error != null && code.length == 6) code = "" }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Ink)
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Pad),
+    ) {
+        Spacer(Modifier.height(8.dp))
+        IconButton(onClick = onBack) {
+            Icon(painterResource(R.drawable.ic_back), contentDescription = "Wróć", tint = Paper, modifier = Modifier.size(20.dp))
+        }
+        Ghost(size = 76.dp, floating = true, modifier = Modifier.padding(vertical = 12.dp))
+        SectionTitle("Nowe hasło")
+        Spacer(Modifier.height(8.dp))
+        Lead("Jeśli na $email jest konto, wysłaliśmy na nie 6-cyfrowy kod. Jest ważny 15 minut.")
+        Spacer(Modifier.height(24.dp))
+
+        BasicCodeField(code, focus) { code = it }
+        Spacer(Modifier.height(14.dp))
+        Field(haslo, "Nowe hasło", { haslo = it }, password = true)
+        Spacer(Modifier.height(6.dp))
+        Text("Co najmniej 8 znaków.", color = Mist, fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
+
+        Spacer(Modifier.height(14.dp))
+        ErrorText(error)
+        Spacer(Modifier.height(14.dp))
+        PrimaryButton("Ustaw nowe hasło", busy = busy) { onSubmit(code, haslo) }
+        Spacer(Modifier.height(10.dp))
+        GhostButton(
+            if (cooldown > 0) "Wyślij ponownie za $cooldown s" else "Wyślij kod ponownie",
+            enabled = cooldown == 0 && !busy,
+            onClick = onResend,
+        )
+        Spacer(Modifier.height(18.dp))
     }
 }
 

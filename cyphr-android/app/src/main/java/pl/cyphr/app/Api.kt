@@ -251,6 +251,26 @@ object Api {
         call("/auth/resend", "POST", JSONObject().put("email", email))
     }
 
+    /**
+     * Prosba o kod do zmiany zapomnianego hasla. Serwer odpowiada tak samo
+     * niezaleznie od tego, czy konto istnieje — inaczej dalby sie odpytac,
+     * ktore adresy sa zarejestrowane.
+     */
+    suspend fun forgot(email: String) {
+        call("/auth/forgot", "POST", JSONObject().put("email", email))
+    }
+
+    /** Kod z maila plus nowe haslo. Udana zmiana od razu loguje. */
+    suspend fun reset(ctx: Context, email: String, code: String, password: String): User? =
+        session(
+            ctx,
+            call(
+                "/auth/reset",
+                "POST",
+                JSONObject().put("email", email).put("code", code).put("password", password),
+            ),
+        )
+
     private fun session(ctx: Context, r: JSONObject): User? {
         val t = r.optString("token").ifBlank { null } ?: return null
         saveToken(ctx, t)

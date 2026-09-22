@@ -41,7 +41,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
-private enum class Route { Splash, Auth, Verify, Main, Terminal, Settings }
+private enum class Route { Splash, Auth, Verify, Reset, Main, Terminal, Settings }
 
 /**
  * Ekrany z hasłem i kodem są zawsze chronione przed zrzutem ekranu, niezależnie
@@ -189,7 +189,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
     val scope = rememberCoroutineScope()
 
     var route by remember { mutableStateOf(Route.Splash) }
-    SecureWindow(route == Route.Auth || route == Route.Verify || Prefs.secureScreen)
+    SecureWindow(route in setOf(Route.Auth, Route.Verify, Route.Reset) || Prefs.secureScreen)
 
     var user by remember { mutableStateOf<User?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -379,10 +379,15 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
         }
     }
 
-    BackHandler(enabled = route == Route.Terminal || route == Route.Settings || (route == Route.Main && tab != Tab.Chat)) {
+    BackHandler(
+        enabled = route == Route.Terminal || route == Route.Settings || route == Route.Reset ||
+            route == Route.Verify || (route == Route.Main && tab != Tab.Chat),
+    ) {
         when {
             route == Route.Terminal -> route = Route.Settings
             route == Route.Settings -> route = Route.Main
+            // Z kodu wracamy do logowania, a nie z aplikacji.
+            route == Route.Reset || route == Route.Verify -> { error = null; route = Route.Auth }
             else -> tab = Tab.Chat
         }
     }
@@ -409,6 +414,25 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                         // na ostatnio uzyte.
                         googleClient.signOut().addOnCompleteListener {
                             googleLauncher.launch(googleClient.signInIntent)
+                        }
+                    },
+                    onForgot = { email ->
+                        // Samo pole e-mail musi byc sensowne — reszta dzieje sie na serwerze.
+                        error = if (!Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(email)) {
+                            "Wpisz swój adres e-mail, wyślemy na niego kod."
+                        } else {
+                            null
+                        }
+                        if (error == null) scope.launch {
+                            busy = true
+                            try {
+                                Api.forgot(email)
+                                pendingEmail = email
+                                cooldown = 60
+                                route = Route.Reset
+                            } catch (e: Exception) {
+                                error = e.message
+                            } finally { busy = false }
                         }
                     },
                     onSubmit = { register, email, password, name ->
@@ -455,6 +479,40 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                             try { Api.verify(context, pendingEmail, code)?.let { enterApp(it) } }
                             catch (e: Exception) { error = e.message }
                             finally { busy = false }
+                        }
+                    },
+                )
+
+                Route.Reset -> ResetScreen(
+                    email = pendingEmail,
+                    busy = busy,
+                    error = error,
+                    cooldown = cooldown,
+                    onBack = { error = null; route = Route.Auth },
+                    onResend = {
+                        scope.launch {
+                            busy = true
+                            try { Api.forgot(pendingEmail); cooldown = 60; toast = "Wysłaliśmy nowy kod." }
+                            catch (e: Exception) { error = e.message }
+                            finally { busy = false }
+                        }
+                    },
+                    onSubmit = { code, haslo ->
+                        error = when {
+                            code.length != 6 -> "Wpisz wszystkie 6 cyfr."
+                            haslo.length < 8 -> "Hasło musi mieć co najmniej 8 znaków."
+                            else -> null
+                        }
+                        if (error == null) scope.launch {
+                            busy = true
+                            try {
+                                // Udana zmiana od razu loguje, wiec wchodzimy tak samo
+                                // jak po zwyklym logowaniu — z odciskiem palca.
+                                Api.reset(context, pendingEmail, code, haslo)?.let { enterApp(it) }
+                                    ?: run { error = "Nie udało się zmienić hasła." }
+                            } catch (e: Exception) {
+                                error = e.message
+                            } finally { busy = false }
                         }
                     },
                 )
