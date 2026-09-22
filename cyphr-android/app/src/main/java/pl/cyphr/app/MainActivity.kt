@@ -506,10 +506,12 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                         if (error == null) scope.launch {
                             busy = true
                             try {
-                                // Udana zmiana od razu loguje, wiec wchodzimy tak samo
-                                // jak po zwyklym logowaniu — z odciskiem palca.
-                                Api.reset(context, pendingEmail, code, haslo)?.let { enterApp(it) }
-                                    ?: run { error = "Nie udało się zmienić hasła." }
+                                // Zmiana hasla i od razu zwykle logowanie nowym haslem —
+                                // z odciskiem palca, tak samo jak przy wejsciu z ekranu
+                                // logowania.
+                                Api.reset(pendingEmail, code, haslo)
+                                Api.login(context, pendingEmail, haslo)?.let { enterApp(it) }
+                                    ?: run { error = "Hasło zmienione. Zaloguj się nim." }
                             } catch (e: Exception) {
                                 error = e.message
                             } finally { busy = false }

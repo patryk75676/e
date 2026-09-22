@@ -260,16 +260,18 @@ object Api {
         call("/auth/forgot", "POST", JSONObject().put("email", email))
     }
 
-    /** Kod z maila plus nowe haslo. Udana zmiana od razu loguje. */
-    suspend fun reset(ctx: Context, email: String, code: String, password: String): User? =
-        session(
-            ctx,
-            call(
-                "/auth/reset",
-                "POST",
-                JSONObject().put("email", email).put("code", code).put("password", password),
-            ),
+    /**
+     * Kod z maila plus nowe haslo. Sama zmiana nie tworzy sesji — aplikacja
+     * loguje sie potem normalnie, dzieki czemu serwer nie musi duplikowac
+     * wydawania tokenow.
+     */
+    suspend fun reset(email: String, code: String, password: String) {
+        call(
+            "/auth/reset",
+            "POST",
+            JSONObject().put("email", email).put("code", code).put("password", password),
         )
+    }
 
     private fun session(ctx: Context, r: JSONObject): User? {
         val t = r.optString("token").ifBlank { null } ?: return null
