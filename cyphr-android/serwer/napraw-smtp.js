@@ -166,21 +166,52 @@ const wylaczWeryfikacje = () => {
 
   // --- sprawdzenie rejestracji od zewnatrz ---
   console.log('\n=== 4. Probna rejestracja przez ' + ADRES + ' ===');
-  const mail = `test-weryfikacji-${Date.now()}@cyphr.com.pl`;
-  let kod = 0, tresc = '';
-  try {
-    const r = await fetch(ADRES + '/auth/register', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: mail, password: 'Test12345!', name: 'Test Weryfikacji' }),
-    });
-    kod = r.status; tresc = await r.text();
-  } catch (e) { tresc = e.message; }
-  console.log(`  HTTP ${kod}  ${tresc.slice(0, 200)}`);
 
-  let dane = {};
-  try { dane = JSON.parse(tresc); } catch {}
+  const zarejestruj = async (mail) => {
+    try {
+      const r = await fetch(ADRES + '/auth/register', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: mail, password: 'Test12345!', name: 'Test Weryfikacji' }),
+      });
+      const tresc = await r.text();
+      let dane = {}; try { dane = JSON.parse(tresc); } catch {}
+      return { mail, kod: r.status, tresc, dane };
+    } catch (e) { return { mail, kod: 0, tresc: e.message, dane: {} }; }
+  };
+  const odrzuconyAdres = (t) => /550|no such recipient|recipients were rejected|mailbox unavailable/i.test(t);
 
-  if (kod >= 500 || kod === 0) {
+  // Adres musi istniec naprawde — serwer poczty odrzuca wysylke na nieistniejaca
+  // skrzynke we wlasnej domenie. Najpierw adres z plusem (ta sama skrzynka, nowe
+  // konto), a gdy poczta go nie przyjmie — sama skrzynka nadawcy.
+  const [lokalna, domena] = (process.env.CYPHR_TEST_MAIL || poNaprawie.SMTP_USER).split('@');
+  let w = await zarejestruj(`${lokalna}+cyphr${Date.now()}@${domena}`);
+  console.log(`  ${w.mail}  ->  HTTP ${w.kod}  ${w.tresc.slice(0, 160)}`);
+
+  if (odrzuconyAdres(w.tresc) && !process.env.CYPHR_TEST_MAIL) {
+    console.log('  Poczta nie przyjmuje adresu z plusem. Powtarzam na skrzynke nadawcy.');
+    w = await zarejestruj(poNaprawie.SMTP_USER);
+    console.log(`  ${w.mail}  ->  HTTP ${w.kod}  ${w.tresc.slice(0, 160)}`);
+  }
+
+  const sprzatanie = `  Konto probne usuniesz tak:  DELETE FROM users WHERE email = '${w.mail}';`;
+
+  if (odrzuconyAdres(w.tresc)) {
+    console.log('\n  Serwer poczty przyjal logowanie, ale odrzucil tego odbiorce.');
+    console.log('  Haslo jest naprawione i weryfikacja zostaje wlaczona — brakuje tylko');
+    console.log('  adresu, na ktory da sie wyslac. Powtorz na swoim prawdziwym adresie:');
+    console.log(`    CYPHR_TEST_MAIL=twoj@gmail.com "${process.argv[0]}" napraw-smtp.js`);
+    console.log('\n' + sprzatanie);
+    return;
+  }
+
+  if (w.kod === 409 || /zaj[eę]t|taken|exists|istnieje/i.test(w.tresc)) {
+    console.log('\n  Na ten adres jest juz konto, wiec rejestracja nie doszla do wysylki maila.');
+    console.log('  Haslo naprawione, weryfikacja wlaczona. Powtorz na innym adresie:');
+    console.log(`    CYPHR_TEST_MAIL=twoj@gmail.com "${process.argv[0]}" napraw-smtp.js`);
+    return;
+  }
+
+  if (w.kod >= 500 || w.kod === 0) {
     wylaczWeryfikacje();
     console.error('\n  Rejestracja nadal nie dziala — wylaczylem weryfikacje z powrotem.');
     console.error(`  Rejestracja znowu wpuszcza. Pelna kopia sprzed zmian: ${path.basename(kopia)}`);
@@ -189,22 +220,23 @@ const wylaczWeryfikacje = () => {
       try {
         for (const f of fs.readdirSync(k).filter((f) => /stderr|error/i.test(f)).slice(0, 2)) {
           console.error(`  --- ${path.join(k, f)} ---`);
-          console.error(cp.execSync(`grep -a "auth/register" ${JSON.stringify(path.join(k, f))} | tail -n 15`).toString());
+          console.error(cp.execSync(`grep -a "auth/register" ${JSON.stringify(path.join(k, f))} | tail -n 8`).toString());
         }
       } catch {}
     }
     process.exit(1);
   }
 
-  if (dane.token) {
+  if (w.dane.token) {
     console.log('\n  Rejestracja wpuszcza bez kodu — serwer nie patrzy na SMTP_HOST.');
     console.log('  Poprawka hasla zostaje. Przeslij ten wynik dalej.');
+    console.log('\n' + sprzatanie);
     process.exit(2);
   }
 
   console.log('\n  Dobrze: rejestracja czeka na kod z maila, a nie wydaje tokenu.');
-  console.log('\nGotowe. Konto probne mozesz usunac:');
-  console.log(`  DELETE FROM users WHERE email = '${mail}';`);
+  console.log(`  Kod powinien byc na skrzynce ${w.mail}.`);
+  console.log('\n' + sprzatanie);
 })().catch((e) => {
   try { wylaczWeryfikacje(); } catch {}
   console.error('BLAD:', e && e.message, '— wylaczylem weryfikacje z powrotem.');
