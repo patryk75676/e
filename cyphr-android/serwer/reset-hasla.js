@@ -71,9 +71,9 @@ function wyslij(doKogo, kod) {
     connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 15000,
   });
   // Kod duzy i osobno, zeby dalo sie go przepisac jednym spojrzeniem.
-  // Wersja tekstowa zostaje dla klientow, ktore nie pokazuja HTML-a.
+  // Tresc po angielsku — aplikacja celuje w odbiorce spoza Polski.
   const html = `<!doctype html>
-<html lang="pl"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:24px;background:#0b0b0d;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
@@ -82,8 +82,8 @@ function wyslij(doKogo, kod) {
         <div style="font-size:22px;font-weight:800;letter-spacing:3px;color:#f4f4f5;">CYPHR</div>
       </td></tr>
       <tr><td style="padding:0 30px;">
-        <div style="font-size:17px;font-weight:700;color:#f4f4f5;padding-bottom:6px;">Nowe hasło</div>
-        <div style="font-size:14px;line-height:1.6;color:#9b9ba3;">Wpisz ten kod w aplikacji, żeby ustawić nowe hasło.</div>
+        <div style="font-size:17px;font-weight:700;color:#f4f4f5;padding-bottom:6px;">Reset your password</div>
+        <div style="font-size:14px;line-height:1.6;color:#9b9ba3;">Enter this code in the app to set a new password.</div>
       </td></tr>
       <tr><td style="padding:22px 30px;">
         <div style="background:#1d1d21;border:1px solid #2e2e35;border-radius:14px;padding:18px;text-align:center;">
@@ -92,13 +92,13 @@ function wyslij(doKogo, kod) {
       </td></tr>
       <tr><td style="padding:0 30px 26px;">
         <div style="font-size:13px;line-height:1.7;color:#9b9ba3;">
-          Kod jest ważny <strong style="color:#c9c9d1;">${WAZNOSC_MINUT} minut</strong> i można go użyć raz.<br>
-          Jeśli to nie Ty prosiłeś o zmianę hasła — zignoruj tę wiadomość.
-          Dotychczasowe hasło dalej działa i nic się nie zmieniło.
+          This code expires in <strong style="color:#c9c9d1;">${WAZNOSC_MINUT} minutes</strong> and can be used once.<br>
+          If you did not request a password reset, ignore this email.
+          Your current password still works and nothing has changed.
         </div>
       </td></tr>
       <tr><td style="padding:16px 30px;border-top:1px solid #26262b;">
-        <div style="font-size:12px;color:#6a6a73;">Wiadomość wysłana automatycznie — nie odpowiadaj na nią.</div>
+        <div style="font-size:12px;color:#6a6a73;">Automated message — please do not reply.</div>
       </td></tr>
     </table>
   </td></tr></table>
@@ -107,12 +107,12 @@ function wyslij(doKogo, kod) {
   return t.sendMail({
     from: we('SMTP_FROM') || we('SMTP_USER'),
     to: doKogo,
-    subject: `Kod do zmiany hasła: ${kod}`,
+    subject: `Your CYPHR password reset code: ${kod}`,
     text:
-      `Twój kod do ustawienia nowego hasła: ${kod}\n\n` +
-      `Kod jest ważny ${WAZNOSC_MINUT} minut i można go użyć raz.\n` +
-      `Jeśli to nie Ty prosiłeś o zmianę hasła, zignoruj tę wiadomość — ` +
-      `dotychczasowe hasło dalej działa.\n`,
+      `Your CYPHR password reset code: ${kod}\n\n` +
+      `This code expires in ${WAZNOSC_MINUT} minutes and can be used once.\n` +
+      `If you did not request a password reset, ignore this email — ` +
+      `your current password still works.\n`,
     html,
   });
 }
