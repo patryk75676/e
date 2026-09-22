@@ -55,20 +55,25 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Odcisk klucza do Google Cloud Console
+        # Krok informacyjny — nie moze wywalic builda, gdy APK juz powstal.
+        if: ${{ always() }}
         run: |
-          if [ -f app/debug.keystore ]; then
-            KEYSTORE="app/debug.keystore"
+          KS="app/debug.keystore"
+          [ -f "$KS" ] || KS="$HOME/.android/debug.keystore"
+          echo "Nazwa pakietu: pl.cyphr.app" > fingerprint.txt
+          if [ -f "$KS" ]; then
+            keytool -list -v -keystore "$KS" -alias androiddebugkey \
+              -storepass android -keypass android 2>/dev/null \
+              | grep -E "SHA1:|SHA256:" >> fingerprint.txt \
+              || echo "(nie udalo sie odczytac odcisku z $KS)" >> fingerprint.txt
           else
-            KEYSTORE="$HOME/.android/debug.keystore"
+            echo "(brak pliku keystore — APK podpisany domyslnym kluczem debugowym runnera)" >> fingerprint.txt
           fi
-          {
-            echo "Nazwa pakietu: pl.cyphr.app"
-            keytool -list -v -keystore "$KEYSTORE" -alias androiddebugkey \
-              -storepass android -keypass android | grep -E "SHA1:|SHA256:"
-          } > fingerprint.txt
           cat fingerprint.txt
 
       - name: Wyslij APK jako artefakt
+        # always(), zeby gotowa paczka wyszla nawet gdyby krok wyzej mial czkawke.
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: cyphr-apk
