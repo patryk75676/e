@@ -189,11 +189,7 @@ function zarejestruj(app) {
         [email, sha(kod), WAZNOSC_MINUT],
       );
       ostatnioNaAdres.set(email, Date.now());
-      // Wysylka w tle i zawsze ta sama odpowiedz. Gdyby blad wysylki wracal do
-      // klienta, po samym kodzie odpowiedzi dalo by sie sprawdzac, kto ma konto —
-      // adres bez konta konczy sie natychmiastowym 200, a z kontem 500. Z tego
-      // samego powodu nie czekamy na poczte: inaczej zdradzalby to czas odpowiedzi.
-      wyslij(email, kod).catch((e) => console.error('[reset-hasla] wysylka', e && e.message));
+      wyslij(email, kod).catch(function (e) { console.error('[reset-hasla] wysylka', e); });
       return odpowiedz(res, 200, { status: 'ok' });
     } catch (e) {
       console.error('[reset-hasla] /auth/forgot', e && e.message);
