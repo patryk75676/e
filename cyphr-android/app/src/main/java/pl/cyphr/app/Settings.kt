@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.sp
 /** Ustawienia zapisywane na urzadzeniu. Wartosci domyslne biora sie z gradle.properties. */
 enum class Ask { FileEdit, Command, RiskyCommand, AiPage }
 
+const val DAY_SECONDS = 24 * 60 * 60
+
 object Prefs {
     private const val FILE = "cyphr"
     private lateinit var app: Context
@@ -80,8 +82,8 @@ object Prefs {
     private val _confirmBuy = mutableStateOf<Boolean>(true)
     val confirmBuy: Boolean get() = _confirmBuy.value
 
-    /** Po ilu sekundach w tle aplikacja znowu prosi o odcisk palca. */
-    private val _lockAfterSeconds = mutableStateOf<Int>(60)
+    /** Po ilu sekundach od ostatniego uzycia aplikacja znowu prosi o odcisk palca. Domyslnie 24 h. */
+    private val _lockAfterSeconds = mutableStateOf<Int>(DAY_SECONDS)
     val lockAfterSeconds: Int get() = _lockAfterSeconds.value
 
     fun init(context: Context) {
@@ -98,7 +100,7 @@ object Prefs {
         _appLock.value = sp.getBoolean("app_lock", true)
         _secureScreen.value = sp.getBoolean("secure_screen_all", false)
         _confirmBuy.value = sp.getBoolean("confirm_buy", true)
-        _lockAfterSeconds.value = sp.getInt("lock_after", 60)
+        _lockAfterSeconds.value = sp.getInt("lock_after", DAY_SECONDS)
     }
 
     /**
@@ -142,6 +144,12 @@ object Prefs {
         _systemPrompt.value = value.trim().ifBlank { DEFAULT_PROMPT }
         edit { putString("system_prompt", _systemPrompt.value) }
     }
+
+    /** Czy aplikacja juz raz zapytala o powiadomienia — odmowy nie ponawiamy. */
+    val notificationsAsked: Boolean
+        get() = app.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("notifications_asked", false)
+
+    fun setNotificationsAsked() = edit { putBoolean("notifications_asked", true) }
 
     fun setAgent(value: String?) {
         _agent.value = value
@@ -207,7 +215,7 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
                 GhostButton("Ustaw blokadę ekranu") { ctx.startActivity(Biometrics.enrollIntent()) }
             }
             Spacer(Modifier.height(14.dp))
-            Toggle("Blokada po powrocie do aplikacji", Prefs.appLock) { Prefs.setAppLock(it) }
+            Toggle("Pytaj o odcisk przy otwieraniu", Prefs.appLock) { Prefs.setAppLock(it) }
             Spacer(Modifier.height(14.dp))
             LockAfterPicker()
             Spacer(Modifier.height(14.dp))
@@ -279,8 +287,8 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
 }
 
 /**
- * Po jakim czasie w tle aplikacja znowu prosi o odcisk. Dotyczy wylacznie powrotu
- * do otwartej sesji — nowe logowanie potwierdza sie odciskiem zawsze.
+ * Po jakim czasie od ostatniego uzycia aplikacja znowu prosi o odcisk. Dotyczy wylacznie
+ * powrotu do otwartej sesji — nowe logowanie potwierdza sie odciskiem zawsze.
  */
 @Composable
 private fun LockAfterPicker() {
@@ -288,7 +296,8 @@ private fun LockAfterPicker() {
         60 to "1 min",
         900 to "15 min",
         3600 to "1 godz.",
-        86400 to "24 godz.",
+        DAY_SECONDS to "24 godz.",
+        3 * DAY_SECONDS to "3 dni",
     )
     Text("Pyta ponownie po", color = Mist, fontSize = 13.sp)
     Spacer(Modifier.height(8.dp))
@@ -319,8 +328,8 @@ private fun LockAfterPicker() {
     }
     Spacer(Modifier.height(8.dp))
     Lead(
-        "Dotyczy powrotu do otwartej sesji. Nowe logowanie potwierdzasz odciskiem " +
-            "zawsze, niezależnie od tego ustawienia.",
+        "Liczy się od ostatniego użycia aplikacji — także po jej zamknięciu. Nowe logowanie " +
+            "i wejście na inne konto potwierdzasz odciskiem zawsze, niezależnie od tego ustawienia.",
     )
 }
 
@@ -347,7 +356,8 @@ private fun Toggle(label: String, value: Boolean, enabled: Boolean = true, onCha
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, color = if (enabled) Paper else Mist)
+        // Dluzszy opis zawija sie przed przelacznikiem, zamiast na niego nachodzic.
+        Text(label, color = if (enabled) Paper else Mist, modifier = Modifier.weight(1f).padding(end = 12.dp))
         Switch(
             checked = value,
             onCheckedChange = onChange,

@@ -2,16 +2,38 @@ package pl.cyphr.app
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resumeWithException
 
 class ApiError(message: String, val code: String? = null, val status: Int = 0) : Exception(message)
+
+/**
+ * Zapytanie, ktore da sie przerwac. Przy execute() przerwana praca (wylogowanie, usuniecie
+ * rozmowy) czekala do konca odpowiedzi serwera, nawet minute — teraz zamyka polaczenie od razu.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
+    cont.invokeOnCancellation { cancel() }
+    enqueue(object : Callback {
+        // Po przerwaniu blad juz nikogo nie obchodzi — takie wznowienie jest pomijane.
+        override fun onFailure(call: Call, e: IOException) = cont.resumeWithException(e)
+
+        // Odpowiedz, ktora doszla za pozno, zamykamy — inaczej zostaje otwarte polaczenie.
+        override fun onResponse(call: Call, response: Response) = cont.resume(response) { response.close() }
+    })
+}
 
 data class User(
     val id: Long,
@@ -173,20 +195,22 @@ object Api {
         method: String = "GET",
         body: JSONObject? = null,
         auth: String? = token,
-    ): JSONObject =
-        withContext(Dispatchers.IO) {
-            val builder = Request.Builder().url(base() + path)
-            auth?.let { builder.header("Authorization", "Bearer $it") }
-            when (method) {
-                "POST" -> builder.post((body ?: JSONObject()).toString().toRequestBody(json))
-                else -> builder.get()
-            }
-            val response = try {
-                client.newCall(builder.build()).execute()
-            } catch (e: IOException) {
-                throw ApiError("Brak połączenia z internetem.", "offline")
-            }
-            response.use {
+    ): JSONObject {
+        val builder = Request.Builder().url(base() + path)
+        auth?.let { builder.header("Authorization", "Bearer $it") }
+        when (method) {
+            "POST" -> builder.post((body ?: JSONObject()).toString().toRequestBody(json))
+            else -> builder.get()
+        }
+        val response = try {
+            client.newCall(builder.build()).await()
+        } catch (e: IOException) {
+            throw ApiError("Brak połączenia z internetem.", "offline")
+        }
+        // use na zewnatrz: odpowiedz zamyka sie takze wtedy, gdy praca zostanie przerwana,
+        // zanim zaczniemy ja czytac.
+        return response.use {
+            withContext(Dispatchers.IO) {
                 val text = it.body?.string().orEmpty()
                 val data = try { JSONObject(text) } catch (e: Exception) { JSONObject() }
                 if (!it.isSuccessful) {
@@ -203,6 +227,7 @@ object Api {
                 data
             }
         }
+    }
 
     /** Cena po polsku: przecinek, dwie cyfry. */
     private fun money(v: Double): String = String.format(java.util.Locale("pl"), "%.2f", v)
@@ -295,7 +320,15 @@ object Api {
         cacheUser(User(account.id, account.email, account.name, null, 0.0))
     }
 
-    suspend fun me(): User = user(call("/me").getJSONObject("user")).also { cacheUser(it) }
+    /**
+     * Profil konta. [auth] — sesja inna niz biezaca (odpowiedz w tle po przelaczeniu konta):
+     * wtedy profil nie trafia do schowka, bo tam lezy profil konta, ktore jest na ekranie.
+     */
+    suspend fun me(auth: String? = token): User {
+        val u = user(call("/me", auth = auth).getJSONObject("user"))
+        if (auth == token) cacheUser(u)
+        return u
+    }
 
     suspend fun profile(): Profile {
         val r = call("/profile")
@@ -369,12 +402,16 @@ object Api {
         }
     }
 
-    /** Pojedyncza odpowiedz czatu. Historia jest wysylana w calosci. */
+    /**
+     * Pojedyncza odpowiedz czatu. Historia jest wysylana w calosci. [auth] to sesja,
+     * z ktorej salda idzie odpowiedz — domyslnie biezaca.
+     */
     suspend fun chat(
         model: String,
         messages: List<ChatMessage>,
         memory: Memory = Memory(),
         toolInstructions: String? = null,
+        auth: String? = token,
     ): Reply {
         val arr = org.json.JSONArray()
         val name = Persona.nameOf(model)
@@ -397,7 +434,7 @@ object Api {
             arr.put(JSONObject().put("role", if (m.fromUser) "user" else "assistant").put("content", m.text))
         }
         val body = JSONObject().put("model", model).put("messages", arr).put("max_tokens", 2048).put("temperature", 0.7)
-        val r = call("/v1/chat/completions", "POST", body)
+        val r = call("/v1/chat/completions", "POST", body, auth)
         val choice = r.optJSONArray("choices")?.optJSONObject(0)
         val message = choice?.optJSONObject("message")
         val content = message?.optString("content").orEmpty().trim()
@@ -426,7 +463,7 @@ object Api {
      * przestajemy slac caly zapis. Gdy sie nie uda, zwracamy pamiec bez zmian —
      * rozmowa dziala dalej, tyle ze drozej.
      */
-    suspend fun fold(model: String, messages: List<ChatMessage>, memory: Memory): Memory {
+    suspend fun fold(model: String, messages: List<ChatMessage>, memory: Memory, auth: String? = token): Memory {
         val fresh = freshOf(messages, memory)
         val toFold = fresh.dropLast(KEEP_VERBATIM)
         if (toFold.isEmpty()) return memory
@@ -457,7 +494,7 @@ object Api {
             .put("max_tokens", 400).put("temperature", 0.2)
 
         return try {
-            val r = call("/v1/chat/completions", "POST", body)
+            val r = call("/v1/chat/completions", "POST", body, auth)
             val text = r.optJSONArray("choices")?.optJSONObject(0)
                 ?.optJSONObject("message")?.optString("content").orEmpty().trim()
             if (text.isBlank()) memory

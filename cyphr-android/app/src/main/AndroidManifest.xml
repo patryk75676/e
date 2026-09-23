@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- Czat konczy odpowiedz w tle: usluga pierwszoplanowa trzyma proces, a powiadomienie
+         mowi, ze odpowiedz jest gotowa albo model prosi o zgode na polecenie. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Od Androida 11 obca paczka jest niewidoczna, dopoki nie zostanie tu wymieniona. -->
     <queries>
@@ -33,5 +38,10 @@
             <!-- Nie ma tu linku cyphr://google — przyjmowal token logowania od dowolnej
                  strony. Logowanie Google idzie tylko natywnym wyborem konta. -->
         </activity>
+
+        <service
+            android:name=".ChatService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

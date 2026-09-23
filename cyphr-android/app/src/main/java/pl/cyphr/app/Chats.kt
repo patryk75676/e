@@ -42,6 +42,17 @@ fun List<Chat>.updated(id: String, now: Long, block: (Chat) -> Chat): Pair<List<
 }
 
 /**
+ * Rozmowa bez wiadomosci [index]. Gdy wiadomosc byla juz zwinieta w notatke pamieci,
+ * licznik zwinietych maleje o jeden — inaczej pierwsza swieza wiadomosc wypadlaby
+ * z tego, co leci do modelu.
+ */
+fun Chat.withoutMessage(index: Int): Chat {
+    if (index !in messages.indices) return this
+    val folded = if (index < memory.folded) memory.folded - 1 else memory.folded
+    return copy(messages = messages.filterIndexed { i, _ -> i != index }, memory = memory.copy(folded = folded))
+}
+
+/**
  * Rozmowy leza w osobnych plikach, wiec dopisanie wiadomosci do jednej nie
  * przepisuje pozostalych. Kazde konto ma wlasny podkatalog — wylogowanie ich
  * nie kasuje, a inne konto na tym samym telefonie ich nie zobaczy.
@@ -64,6 +75,10 @@ object Chats {
     } catch (e: Exception) {
         emptyList()
     }
+
+    /** Jedna rozmowa albo null, gdy jej nie ma (np. usunieta w trakcie odpowiedzi). */
+    fun load(context: Context, userId: Long, id: String): Chat? =
+        file(context, userId, id).takeIf { it.exists() }?.let { read(it) }
 
     private fun read(f: File): Chat? = try {
         val root = JSONObject(f.readText())

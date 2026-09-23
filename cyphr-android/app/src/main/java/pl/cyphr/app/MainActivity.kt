@@ -37,12 +37,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.auth.api.signin.GoogleSignInStatusCodes
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 
 private enum class Route { Splash, Auth, Verify, Reset, Main, Terminal, Settings }
 
@@ -76,16 +72,30 @@ private fun SecureWindow(secure: Boolean) {
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Okno zgody na Termuxa musi byc zarejestrowane przed startem aktywnosci.
+        // Okna zgody (Termux, powiadomienia) musza byc zarejestrowane przed startem aktywnosci.
         TermuxPermission.register(this)
+        NotificationPermission.register(this)
         enableEdgeToEdge()
         SecureStore.init(this)
         Prefs.init(this)
         Api.load(this)
+        ChatEngine.init(this)
         // Logowanie Google idzie wylacznie natywnym wyborem konta. Dawny powrot
         // z przegladarki (cyphr://google?id_token=...) przyjmowal token od dowolnej
         // strony albo aplikacji — mogla zalogowac telefon na cudze konto. Usuniety.
         setContent { CyphrTheme { CyphrGate(this) } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Ekran widac — wynik odpowiedzi pokaze sie w rozmowie, powiadomienie jest zbedne.
+        ChatEngine.visible = true
+        Notifications.clear(this)
+    }
+
+    override fun onStop() {
+        ChatEngine.visible = false
+        super.onStop()
     }
 }
 
@@ -103,9 +113,10 @@ private class SecondFactor(val reason: String, val onOk: () -> Unit, val onFail:
 private fun CyphrGate(activity: FragmentActivity) {
     var bio by remember { mutableStateOf(Biometrics.state(activity)) }
     val hasLock = bio is Biometrics.State.Ready
-    var unlocked by remember { mutableStateOf(Api.token() == null || !hasLock) }
+    // Po starcie pytamy tylko, gdy od ostatniego uzycia minelo wiecej niz okno blokady
+    // (domyslnie 24 h) — wczesniej odcisk byl przy kazdym uruchomieniu.
+    var unlocked by remember { mutableStateOf(Api.token() == null || !hasLock || !LockClock.due()) }
     var problem by remember { mutableStateOf<String?>(null) }
-    var leftAt by remember { mutableStateOf(0L) }
 
     // Logowanie czekajace, az telefon bedzie mial czym potwierdzic tozsamosc.
     var pending by remember { mutableStateOf<SecondFactor?>(null) }
@@ -114,7 +125,7 @@ private fun CyphrGate(activity: FragmentActivity) {
         Biometrics.prompt(
             activity = activity,
             subtitle = reason,
-            onSuccess = { unlocked = true; problem = null },
+            onSuccess = { unlocked = true; problem = null; LockClock.touch() },
             onFailure = { problem = it },
         )
     }
@@ -129,7 +140,13 @@ private fun CyphrGate(activity: FragmentActivity) {
         bio = state
         if (state is Biometrics.State.Ready) {
             pending = null
-            Biometrics.prompt(activity, request.reason, onSuccess = request.onOk, onFailure = request.onFail)
+            Biometrics.prompt(
+                activity,
+                request.reason,
+                // Swiezo potwierdzone logowanie tez liczy sie jako odblokowanie.
+                onSuccess = { LockClock.touch(); request.onOk() },
+                onFailure = request.onFail,
+            )
         } else {
             pending = request
         }
@@ -139,16 +156,14 @@ private fun CyphrGate(activity: FragmentActivity) {
     DisposableEffect(owner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> leftAt = System.currentTimeMillis()
+                // Czas wyjscia liczymy tylko przy odblokowanej aplikacji — patrz LockClock.touch.
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> if (unlocked && Api.token() != null) LockClock.touch()
                 androidx.lifecycle.Lifecycle.Event.ON_START -> {
                     // Stan moze sie zmienic, gdy ktos w miedzyczasie dopisal odcisk w ustawieniach
                     bio = Biometrics.state(activity)
                     // Powrot z ustawien z gotowa blokada: czekajace logowanie rusza dalej.
                     pending?.let { if (bio is Biometrics.State.Ready) confirm(it) }
-                    val away = (System.currentTimeMillis() - leftAt) / 1000
-                    if (bio is Biometrics.State.Ready && Prefs.appLock && leftAt > 0L &&
-                        away >= Prefs.lockAfterSeconds && Api.token() != null
-                    ) {
+                    if (bio is Biometrics.State.Ready && unlocked && Api.token() != null && LockClock.due()) {
                         unlocked = false
                     }
                 }
@@ -209,7 +224,9 @@ private fun CyphrGate(activity: FragmentActivity) {
             Spacer(Modifier.height(10.dp))
             Box(Modifier.width(230.dp)) {
                 GhostButton("Wyloguj się") {
+                    Api.cachedUser()?.id?.let { ChatEngine.stop(it) }
                     Api.saveToken(activity, null)
+                    LockClock.forget()
                     unlocked = true
                 }
             }
@@ -292,52 +309,36 @@ private fun CyphrApp(
     var bump by remember { mutableStateOf(0) }
     var accounts by remember { mutableStateOf(Accounts.all()) }
 
-    // Czat
-    var chats by remember { mutableStateOf(listOf(Chat())) }
-    var activeId by remember { mutableStateOf(chats.first().id) }
+    // Czat. Rozmowy i odpowiedzi trzyma ChatEngine, a nie ten ekran — odpowiedz liczy sie
+    // dalej, gdy wyjdziesz z aplikacji, zablokujesz ja albo ekran sie odtworzy.
+    val chats by ChatEngine.chats.collectAsState()
+    val activeId by ChatEngine.activeId.collectAsState()
+    val busyChats by ChatEngine.busy.collectAsState()
+    val lastTokens by ChatEngine.lastTokens.collectAsState()
+    val approval by ChatEngine.approval.collectAsState()
     var showChats by remember { mutableStateOf(false) }
 
     // Rozmowy naleza do konta, nie do instalacji. Wczytujemy je, gdy wiadomo kto
     // jest zalogowany, i zostawiamy na dysku przy wylogowaniu.
-    LaunchedEffect(user?.id) {
-        val uid = user?.id
-        chats = if (uid == null) listOf(Chat())
-        else withContext(Dispatchers.IO) { Chats.loadAll(context, uid) }.ifEmpty { listOf(Chat()) }
-        activeId = chats.first().id
+    LaunchedEffect(user?.id) { user?.id?.let { ChatEngine.open(it) } }
+
+    // Wiadomosci od odpowiedzi idacej w tle: blad do pokazania albo nowe saldo.
+    LaunchedEffect(Unit) {
+        ChatEngine.events.collect { event ->
+            when (event) {
+                is ChatEngine.Event.Message -> if (event.uid == user?.id) toast = event.text
+                // Saldo tylko dla konta, ktore wciaz jest zalogowane.
+                is ChatEngine.Event.Account -> if (event.user.id == user?.id) user = event.user
+            }
+        }
     }
 
     val active = chats.firstOrNull { it.id == activeId } ?: chats.first()
     val messages = active.messages
     val memory = active.memory
+    val thinking = active.id in busyChats
     // Na ekranie zawsze nazwa CYPHR — nigdy identyfikator, ktory idzie do serwera.
     val agentName = selectedAgent?.let { Persona.nameOf(it) }
-
-    /**
-     * Podmienia rozmowe o danym id i zapisuje ja pod kontem zalogowanego uzytkownika.
-     * Liczy od aktualnego stanu listy (`chats` czyta stan, nie kopie), bo ta funkcja
-     * jest wolana z korutyny kilka sekund po wyslaniu — kopia `active` z tamtej chwili
-     * nie zawierala jeszcze pytania i odpowiedz je nadpisywala.
-     */
-    fun updateChat(id: String, block: (Chat) -> Chat) {
-        val (list, next) = chats.updated(id, System.currentTimeMillis(), block) ?: return
-        chats = list
-        val uid = user?.id ?: return
-        scope.launch { withContext(Dispatchers.IO) { Chats.save(context, uid, next) } }
-    }
-    var thinking by remember { mutableStateOf(false) }
-    /** Rzeczywiste zuzycie ostatniej wymiany: wejscie do outputu. */
-    var lastTokens by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-
-    // Polecenie, o ktore poprosil model, wraz z odpowiedzia czekajaca na uzytkownika.
-    var pendingCommand by remember { mutableStateOf<Pair<String, (Boolean) -> Unit>?>(null) }
-
-    suspend fun askCommand(command: String): Boolean = suspendCancellableCoroutine { cont ->
-        pendingCommand = command to { allowed ->
-            pendingCommand = null
-            if (cont.isActive) cont.resume(allowed)
-        }
-        cont.invokeOnCancellation { pendingCommand = null }
-    }
 
     // Przegladarka. Osobna dla kazdego konta, zeby historia jednego nie przechodzila
     // na drugie; stara jest niszczona przy zmianie konta.
@@ -409,7 +410,7 @@ private fun CyphrApp(
                     Api.useAccount(context, acc)
                     user = Api.cachedUser()
                     usage = null; shop = null; plan = null
-                    agents = emptyList(); lastTokens = null
+                    agents = emptyList(); ChatEngine.noteUsage(null)
                     accounts = Accounts.all()
                     tab = Tab.Chat
                     route = Route.Main
@@ -431,12 +432,16 @@ private fun CyphrApp(
         scope.launch {
             busy = true
             val gone = user?.id
+            // Odpowiedzi w tle tego konta koncza sie razem z nim — nie ida dalej z jego salda.
+            gone?.let { ChatEngine.stop(it) }
             Api.logout(context)
+            // Nastepna osoba na tym telefonie nie wchodzi „w oknie” poprzedniej.
+            LockClock.forget()
             googleClient.signOut()
             gone?.let { Accounts.remove(it) }
             accounts = Accounts.all()
             usage = null; shop = null; plan = null
-            agents = emptyList(); lastTokens = null
+            agents = emptyList(); ChatEngine.noteUsage(null)
             busy = false
             // Rozmowy zostaja na dysku pod kontem — wroca po zalogowaniu.
             user = null
@@ -801,90 +806,17 @@ private fun CyphrApp(
                                     onPickAgent = { tab = Tab.Agents },
                                     onSend = { text ->
                                         val model = selectedAgent
+                                        val uid = user?.id
                                         if (model == null) { toast = "Najpierw wybierz agenta."; return@ChatTab }
+                                        if (uid == null) return@ChatTab
                                         // Odpowiedz trafia do rozmowy, w ktorej padlo pytanie —
-                                        // nawet gdy w trakcie przelaczysz sie na inna.
-                                        val chatId = active.id
-                                        val sent = messages + ChatMessage(text, true)
-                                        updateChat(chatId) { it.copy(messages = sent) }
-                                        scope.launch {
-                                            thinking = true
-                                            try {
-                                                // Starsze wymiany zwijamy w notatke, zanim polecą po raz kolejny.
-                                                var mem = memory
-                                                if (shouldFold(sent, mem)) {
-                                                    mem = Api.fold(model, sent, mem)
-                                                    updateChat(chatId) { it.copy(memory = mem) }
-                                                }
-                                                val tools = if (Prefs.agentTerminal) {
-                                                    AgentTools.instructions(AgentTools.target(context))
-                                                } else {
-                                                    null
-                                                }
-                                                var history = sent
-                                                var reply = Api.chat(model, history, mem, tools)
-                                                var round = 0
-
-                                                // Model moze poprosic o polecenie. Kazde przechodzi przez
-                                                // zgode uzytkownika, a petla ma twardy limit, zeby nie
-                                                // zapetlic sie na saldzie.
-                                                while (Prefs.agentTerminal && round < AgentTools.MAX_ROUNDS) {
-                                                    val cmd = AgentTools.requestedCommand(reply.text) ?: break
-                                                    // Tura modelu zostaje w historii razem z poleceniem —
-                                                    // uzytkownik widzi, co idzie do terminala, a model wie,
-                                                    // o co sam poprosil.
-                                                    val spoken = AgentTools.withoutCall(reply.text)
-                                                    history = history + ChatMessage(
-                                                        listOf(spoken, "$ $cmd").filter { it.isNotBlank() }
-                                                            .joinToString("\n\n"),
-                                                        false,
-                                                    )
-                                                    updateChat(chatId) { it.copy(messages = history) }
-                                                    val allowed = askCommand(cmd)
-                                                    val result = if (allowed) {
-                                                        AgentTools.execute(context, cmd)
-                                                    } else {
-                                                        "Użytkownik odmówił wykonania tego polecenia."
-                                                    }
-                                                    history = history + ChatMessage(
-                                                        "Wynik polecenia `$cmd`:\n$result",
-                                                        true,
-                                                    )
-                                                    updateChat(chatId) { it.copy(messages = history) }
-                                                    reply = Api.chat(model, history, mem, tools)
-                                                    lastTokens = reply.inTokens to reply.outTokens
-                                                    round++
-                                                }
-
-                                                var shown = AgentTools.withoutCall(reply.text).ifBlank { reply.text }
-                                                // Limit wyczerpany, a model wciaz prosi o kolejne polecenie.
-                                                if (Prefs.agentTerminal && round >= AgentTools.MAX_ROUNDS &&
-                                                    AgentTools.requestedCommand(reply.text) != null
-                                                ) {
-                                                    shown += "\n\n(Przerwano po ${AgentTools.MAX_ROUNDS} poleceniach. " +
-                                                        "Napisz „kontynuuj”, żeby pracował dalej.)"
-                                                }
-                                                updateChat(chatId) {
-                                                    it.copy(messages = it.messages + ChatMessage(shown, false))
-                                                }
-                                                lastTokens = reply.inTokens to reply.outTokens
-                                                // Odswiezamy saldo po kazdej wiadomosci
-                                                try {
-                                                    val u = Api.me()
-                                                    user = u
-                                                } catch (_: Exception) {}
-                                            } catch (e: Exception) {
-                                                // Chwilowa awaria modelu nie jest wina aplikacji ani salda —
-                                                // drugi model zwykle dziala. Wlasny tekst, bo serwerowy
-                                                // mowi o tym, co stoi za modelem.
-                                                toast = if (e is ApiError && e.code == "upstream_error") {
-                                                    "${Persona.nameOf(model)} chwilowo nie odpowiada. " +
-                                                        "Spróbuj ponownie albo wybierz drugi model w zakładce Agenci."
-                                                } else {
-                                                    e.message
-                                                }
-                                            } finally { thinking = false }
-                                        }
+                                        // nawet gdy przelaczysz rozmowe albo wyjdziesz z aplikacji.
+                                        ChatEngine.send(uid, active.id, model, text)
+                                        // O gotowej odpowiedzi w tle mowi powiadomienie — pytamy o nie raz.
+                                        scope.launch { NotificationPermission.askOnce(context) }
+                                    },
+                                    onDelete = { index ->
+                                        user?.id?.let { ChatEngine.deleteMessage(it, active.id, index) } == true
                                     },
                                 )
 
@@ -922,7 +854,7 @@ private fun CyphrApp(
                                                 val prompt = "Strona: $url\n\nTreść:\n$pageText\n\nPytanie: $question"
                                                 val r = Api.chat(model, listOf(ChatMessage(prompt, true)))
                                                 answer = r.text
-                                                lastTokens = r.inTokens to r.outTokens
+                                                ChatEngine.noteUsage(r.inTokens to r.outTokens)
                                             } catch (e: Exception) { toast = e.message }
                                             finally { asking = false }
                                         }
@@ -959,53 +891,33 @@ private fun CyphrApp(
 
         // Zgoda na polecenie zlecone przez model. Ten sam dialog co przy poleceniach
         // wpisywanych recznie — model nie ma drogi na skroty.
-        pendingCommand?.let { (command, answer) ->
-            PermissionDialog(
-                title = "Model prosi o wykonanie polecenia",
-                what = command,
-                detail = "Wynik wróci do modelu i policzy się jako tokeny.",
-                allowAlways = false,
-                onAllowOnce = { answer(true) },
-                onAllowAlways = {},
-                onDeny = { answer(false) },
-            )
+        // Tylko dla zalogowanej osoby: na ekranie logowania prosba czeka.
+        approval?.takeIf { user != null }?.let { request ->
+            // Klucz: kazda prosba to osobne okno, nawet gdy model poprosi dwa razy o to samo.
+            key(request) {
+                PermissionDialog(
+                    title = "Model prosi o wykonanie polecenia",
+                    what = request.command,
+                    detail = "Rozmowa „${request.chat}”. Wynik wróci do modelu i policzy się jako tokeny.",
+                    allowAlways = false,
+                    onAllowOnce = { ChatEngine.answer(request, true) },
+                    onAllowAlways = {},
+                    onDeny = { ChatEngine.answer(request, false) },
+                )
+            }
         }
 
         if (showChats) {
             ChatListSheet(
                 chats = chats,
                 activeId = activeId,
-                onPick = { showChats = false; activeId = it },
+                onPick = { showChats = false; ChatEngine.select(it) },
                 onNew = {
-                    // Pusta rozmowa nie ma sensu mnozyc — jesli biezaca jest pusta, zostajemy w niej.
-                    if (active.messages.isEmpty()) { showChats = false } else {
-                        val fresh = Chat()
-                        chats = listOf(fresh) + chats
-                        activeId = fresh.id
-                        showChats = false
-                        user?.id?.let { uid ->
-                            scope.launch { withContext(Dispatchers.IO) { Chats.save(context, uid, fresh) } }
-                        }
-                    }
+                    user?.id?.let { ChatEngine.newChat(it) }
+                    showChats = false
                 },
-                onRename = { id, name ->
-                    chats = chats.map { c ->
-                        if (c.id == id) c.copy(title = name).also { renamed ->
-                            user?.id?.let { uid ->
-                                scope.launch { withContext(Dispatchers.IO) { Chats.save(context, uid, renamed) } }
-                            }
-                        } else c
-                    }
-                },
-                onDelete = { id ->
-                    user?.id?.let { uid ->
-                        scope.launch { withContext(Dispatchers.IO) { Chats.delete(context, uid, id) } }
-                    }
-                    val left = chats.filterNot { it.id == id }
-                    // Zawsze zostaje przynajmniej jedna rozmowa, zeby ekran czatu mial co pokazac.
-                    chats = left.ifEmpty { listOf(Chat()) }
-                    if (activeId == id) activeId = chats.first().id
-                },
+                onRename = { id, name -> user?.id?.let { ChatEngine.rename(it, id, name) } },
+                onDelete = { id -> user?.id?.let { ChatEngine.deleteChat(it, id) } },
                 onDismiss = { showChats = false },
             )
         }

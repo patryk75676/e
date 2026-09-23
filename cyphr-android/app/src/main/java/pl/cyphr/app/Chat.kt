@@ -11,8 +11,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -62,7 +66,7 @@ private val suggestions = listOf(
     Suggestion("Zaplanuj coś", "Pomóż mi zaplanować "),
 )
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatTab(
     messages: List<ChatMessage>,
@@ -75,6 +79,8 @@ fun ChatTab(
     onSend: (String) -> Unit,
     onPickAgent: () -> Unit,
     onOpenChats: () -> Unit,
+    /** Usuwa wiadomosc o tym indeksie; zwraca, czy sie udalo. */
+    onDelete: (Int) -> Boolean = { false },
 ) {
     // TextFieldValue, a nie String: po wstawieniu podpowiedzi kursor ma stac na koncu.
     var draft by remember { mutableStateOf(TextFieldValue("")) }
@@ -89,7 +95,14 @@ fun ChatTab(
     // i pisanie konczylo sie, zanim sie zaczelo.
     var typed by remember(chatId) { mutableStateOf(messages.size) }
     // Wiadomosci, ktore juz byly w rozmowie przy jej otwarciu, pojawiaja sie bez animacji.
-    val baseline = remember(chatId) { messages.size }
+    var baseline by remember(chatId) { mutableStateOf(messages.size) }
+
+    // Dymek z rozwinietymi akcjami (Kopiuj, Usun) — naraz tylko jeden.
+    var actionsFor by remember(chatId) { mutableStateOf<Int?>(null) }
+    // Wiadomosc czekajaca na potwierdzenie usuniecia, razem z trescia: usuwamy dokladnie
+    // to, co bylo w oknie, nawet gdyby rozmowa w miedzyczasie sie zmienila.
+    var confirmDelete by remember(chatId) { mutableStateOf<Pair<Int, ChatMessage>?>(null) }
+    val keys = remember(messages) { messageKeys(messages) }
 
     // To, co faktycznie leci do modelu: notatka z zwinietej czesci plus swieze
     // wiadomosci. Liczone przy zmianie rozmowy, nie przy kazdym nacisnieciu klawisza.
@@ -98,7 +111,13 @@ fun ChatTab(
     }
     val folded = remember(messages, memory) { memory.folded.coerceAtMost(messages.size) }
 
+    // Nowa wiadomosc przewija na dol. Usunieta — nie: usuwasz cos ze srodka historii
+    // i zostajesz w tym miejscu.
+    val seen = remember(chatId) { intArrayOf(messages.size) }
     LaunchedEffect(messages.size, thinking) {
+        val removed = messages.size < seen[0]
+        seen[0] = messages.size
+        if (removed) return@LaunchedEffect
         val last = messages.size + if (thinking) 1 else 0
         if (last > 0) listState.animateScrollToItem(last - 1)
     }
@@ -202,15 +221,22 @@ fun ChatTab(
                     contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    itemsIndexed(messages) { i, message ->
+                    itemsIndexed(messages, key = { i, _ -> keys[i] }) { i, message ->
                         Bubble(
                             message = message,
                             typing = !message.fromUser && i >= typed,
                             animate = i >= baseline,
                             onTyped = { if (typed <= i) typed = i + 1 },
+                            actions = actionsFor == i,
+                            // W trakcie odpowiedzi historia sie zapisuje — usuwanie poczeka.
+                            canDelete = !thinking,
+                            onToggleActions = { actionsFor = if (actionsFor == i) null else i },
+                            onDelete = { actionsFor = null; confirmDelete = i to message },
+                            // Po usunieciu reszta dymkow dosuwa sie plynnie, a nie skacze.
+                            modifier = Modifier.animateItemPlacement(motionSpec(260)),
                         )
                     }
-                    if (thinking) item { TypingBubble(agent) }
+                    if (thinking) item(key = "typing") { TypingBubble(agent) }
                 }
             }
         }
@@ -266,6 +292,51 @@ fun ChatTab(
                 }
             }
         }
+    }
+
+    confirmDelete?.let { (index, message) ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            containerColor = Raise,
+            title = { Text("Usunąć wiadomość?", color = Paper, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Zniknie z tej rozmowy i model przestanie ją widzieć. Odpowiedź modelu zostaje.",
+                    color = Mist,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = null
+                    // Tylko gdy pod tym miejscem wciaz jest ta sama wiadomosc.
+                    if (messages.getOrNull(index) == message && onDelete(index)) {
+                        // Dalsze wiadomosci przesuwaja sie o jedno miejsce — granice razem z nimi.
+                        if (index < typed) typed -= 1
+                        if (index < baseline) baseline -= 1
+                    }
+                }) {
+                    Text("Usuń", color = Paper, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Zostaw", color = Mist) }
+            },
+        )
+    }
+}
+
+/**
+ * Klucze dymkow: ta sama wiadomosc zachowuje swoj dymek, gdy wczesniejsza zniknie.
+ * Wiadomosci nie maja wlasnych numerow, wiec kluczem jest tresc, a powtorki tej samej
+ * tresci dostaja kolejny numer.
+ */
+internal fun messageKeys(messages: List<ChatMessage>): List<String> {
+    val seen = HashMap<String, Int>()
+    return messages.map { m ->
+        val base = (if (m.fromUser) "u" else "a") + m.text.hashCode()
+        val n = (seen[base] ?: 0) + 1
+        seen[base] = n
+        "$base#$n"
     }
 }
 
@@ -329,12 +400,18 @@ private fun TokenBar(context: Int, draft: Int, last: Pair<Int, Int>?, folded: In
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Bubble(
     message: ChatMessage,
     typing: Boolean = false,
     animate: Boolean = true,
     onTyped: () -> Unit = {},
+    actions: Boolean = false,
+    canDelete: Boolean = true,
+    onToggleActions: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val appear = remember { Animatable(if (animate && Prefs.animations) 0f else 1f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, motionSpec(320)) }
@@ -364,7 +441,7 @@ private fun Bubble(
         RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     }
     Column(
-        Modifier.fillMaxWidth(),
+        modifier.fillMaxWidth(),
         horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start,
     ) {
         Box(
@@ -382,21 +459,61 @@ private fun Bubble(
                 }
                 .clip(shape)
                 .then(
-                    if (message.fromUser) Modifier.background(Paper)
-                    else Modifier.border(1.5.dp, Line, shape)
+                    if (message.fromUser) {
+                        // Dotkniecie albo przytrzymanie wlasnej wiadomosci pokazuje jej akcje.
+                        Modifier
+                            .background(Paper)
+                            .combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = rememberRipple(color = Ink),
+                                onClickLabel = "Pokaż opcje wiadomości",
+                                onLongClick = onToggleActions,
+                                onClick = onToggleActions,
+                            )
+                    } else {
+                        Modifier.border(1.5.dp, Line, shape)
+                    }
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            // Przytrzymanie zaznacza tekst i pozwala go skopiowac.
-            SelectionContainer {
-                if (message.fromUser) {
-                    Text(full, color = Ink, fontSize = 15.sp)
-                } else {
-                    ChatMarkdown(full, Paper, visible = shown, caret = caret)
-                }
+            if (message.fromUser) {
+                Text(full, color = Ink, fontSize = 15.sp)
+            } else {
+                // Przytrzymanie zaznacza fragment odpowiedzi; calosc kopiuje przycisk pod nia.
+                SelectionContainer { ChatMarkdown(full, Paper, visible = shown, caret = caret) }
             }
         }
-        if (!message.fromUser && !caret) CopyButton(full)
+        if (message.fromUser) {
+            AnimatedVisibility(
+                visible = actions,
+                enter = fadeIn(motionSpec(180)) + expandVertically(motionSpec(220), expandFrom = Alignment.Top),
+                exit = fadeOut(motionSpec(140)) + shrinkVertically(motionSpec(180), shrinkTowards = Alignment.Top),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    CopyButton(full)
+                    if (canDelete) ActionButton(R.drawable.ic_delete, "Usuń", onClick = onDelete)
+                }
+            }
+        } else if (!caret) {
+            CopyButton(full)
+        }
+    }
+}
+
+/** Mala akcja pod dymkiem: ikona i podpis, w stylu przycisku „Kopiuj”. */
+@Composable
+private fun ActionButton(icon: Int, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .padding(top = 2.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(icon), contentDescription = null, tint = Mist, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = Mist, fontSize = 12.sp)
     }
 }
 
