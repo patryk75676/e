@@ -52,8 +52,9 @@ Terminal ma dwa tryby:
 - **Lokalny** — polecenia systemu Androida w piaskownicy aplikacji (`/system/bin/sh`),
   z edytorem plików (`edit <plik>`). Bez `apt` i bez roota, bo tego Android nie pozwala obejść.
 - **Termux** — polecenia idą do zainstalowanego Termuksa (z F-Droid), z jego `pkg`,
-  pythonem i gitem. Stan połączenia i konfigurację krok po kroku pokazuje
-  Ustawienia → Terminal.
+  pythonem i gitem. O zgodę na sterowanie Termuksem aplikacja prosi sama, przy
+  pierwszym poleceniu (z terminala albo od modelu). Stan połączenia i konfigurację
+  krok po kroku pokazuje Ustawienia → Terminal.
 
 Trybu SSH już nie ma — aplikacja jest dla klientów, a starsze wersje przy pierwszym
 uruchomieniu nowej kasują zapisane dane SSH i własny adres serwera.
@@ -69,7 +70,10 @@ cyphr.googleWebClientId=TWOJ_WEB_CLIENT_ID.apps.googleusercontent.com
 
 `cyphr.googleWebClientId` to ten sam Client ID, który masz w pliku `.env` serwera
 w polu `GOOGLE_CLIENT_ID`. Musi być typu „Aplikacja internetowa”, bo backend
-sprawdza pole `aud` tokenu.
+sprawdza pole `aud` tokenu. **Nie wpisuj tu identyfikatora klienta typu Android**
+(tego z nazwą pakietu i SHA-1) — Google odrzuca wtedy każde logowanie kodem 10.
+Klient Android (`pl.cyphr.app` + SHA-1 klucza, którym podpisana jest paczka) musi
+tylko istnieć w tym samym projekcie Google Cloud.
 
 ## 2. Budowanie bez komputera (GitHub Actions)
 

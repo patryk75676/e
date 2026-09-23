@@ -75,7 +75,13 @@ Użytkownik potwierdza każde polecenie i może odmówić.
      * caly wynik wrocilby do modelu jako tokeny, za ktore placi uzytkownik.
      * Kazde polecenie ma limit czasu: bez niego `ping` albo `top` wieszaly czat.
      */
-    suspend fun execute(context: Context, command: String): String = withContext(Dispatchers.IO) {
+    suspend fun execute(context: Context, command: String): String {
+        // Termux jest, a zgody jeszcze nie ma — system pyta teraz, przy pierwszym poleceniu.
+        TermuxPermission.ensure(context)
+        return withContext(Dispatchers.IO) { runCommand(context, command) }
+    }
+
+    private suspend fun runCommand(context: Context, command: String): String {
         val raw = if (Termux.ready(context)) {
             val r = Termux.run(context, command, timeoutMs = COMMAND_TIMEOUT_SECONDS * 1000)
             buildString {
@@ -97,6 +103,6 @@ Użytkownik potwierdza każde polecenie i może odmówić.
                 "Błąd: ${e.message}"
             }
         }
-        raw.trimEnd().let { if (it.length > 4000) it.take(4000) + "\n… (wynik obcięty)" else it }
+        return raw.trimEnd().let { if (it.length > 4000) it.take(4000) + "\n… (wynik obcięty)" else it }
     }
 }

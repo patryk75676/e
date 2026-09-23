@@ -84,12 +84,6 @@ object Prefs {
     private val _lockAfterSeconds = mutableStateOf<Int>(60)
     val lockAfterSeconds: Int get() = _lockAfterSeconds.value
 
-    /** Czy aplikacja juz raz sama poprosila o zgode na sterowanie Termuxem. */
-    val termuxAsked: Boolean
-        get() = app.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("termux_asked", false)
-
-    fun setTermuxAsked() = edit { putBoolean("termux_asked", true) }
-
     fun init(context: Context) {
         app = context.applicationContext
         val sp = app.getSharedPreferences(FILE, Context.MODE_PRIVATE)

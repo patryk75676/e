@@ -134,10 +134,16 @@ fun TerminalTab() {
         }
     }
 
+    /** Brak zgody na Termuxa po pytaniu systemu — mowimy, co dalej, zamiast milczec. */
+    fun noTermuxPermission() =
+        push("Bez zgody na sterowanie Termuksem polecenie nie pójdzie. Zezwól, gdy Android zapyta, albo w Ustawienia → Terminal.")
+
     fun executeTermux(command: String) {
         job = scope.launch {
             running = true
             try {
+                // Zgoda prosi sie sama, przy pierwszym poleceniu — nie trzeba jej szukac w Ustawieniach.
+                if (!TermuxPermission.ensure(context)) { noTermuxPermission(); return@launch }
                 val r = Termux.run(context, command, workdir = termuxCwd, timeoutMs = TERMUX_MANUAL_TIMEOUT_MS)
                 r.stdout.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
                 r.stderr.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
@@ -157,6 +163,7 @@ fun TerminalTab() {
         job = scope.launch {
             running = true
             try {
+                if (!TermuxPermission.ensure(context)) { noTermuxPermission(); return@launch }
                 val r = Termux.run(context, "cd -- ${Termux.quote(target)} && pwd", workdir = termuxCwd, timeoutMs = 15_000)
                 val path = r.stdout.trim().lines().lastOrNull()?.trim()
                 if (r.failure == null && r.exitCode == 0 && path != null && path.startsWith("/")) {
@@ -232,7 +239,8 @@ fun TerminalTab() {
                             "Najczęstsze przyczyny, gdy polecenia nie przechodzą:\n" +
                             "1. Termux blokuje polecenia z innych aplikacji. Wklej mu raz:\n" +
                             "   ${Termux.SETUP_COMMAND}\n" +
-                            "2. CYPHR nie ma zgody na sterowanie Termuksem (Ustawienia → Terminal).\n" +
+                            "2. Odmówiono zgody na sterowanie Termuksem — CYPHR pyta przy pierwszym poleceniu;\n" +
+                            "   po odmowie na stałe włączysz ją w Ustawienia → Terminal.\n" +
                             "3. Termux nigdy nie był otwierany — otwórz go raz i poczekaj na koniec instalacji.\n" +
                             "4. Android usypia Termuksa — wyłącz mu optymalizację baterii.\n" +
                             "5. Wersja z Google Play jest za stara — potrzebna z F-Droid (0.109 lub nowsza)."

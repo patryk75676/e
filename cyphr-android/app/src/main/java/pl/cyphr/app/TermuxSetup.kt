@@ -54,16 +54,8 @@ fun TermuxSetup() {
         test()
     }
 
-    LaunchedEffect(Unit) {
-        // Sami pytamy tylko raz. Wczesniej okno systemowe wyskakiwalo przy kazdym
-        // wejsciu w Ustawienia, dopoki ktos sie nie zgodzil.
-        if (Termux.isInstalled(context) && !Termux.hasPermission(context) && !Prefs.termuxAsked) {
-            Prefs.setTermuxAsked()
-            ask.launch(Termux.PERMISSION)
-        } else {
-            test()
-        }
-    }
+    // Samo wejscie w Ustawienia o nic nie pyta — o zgode prosi pierwsze polecenie dla Termuksa.
+    LaunchedEffect(Unit) { test() }
     LaunchedEffect(copied) { if (copied) { delay(2000); copied = false } }
 
     val state = status?.state
@@ -164,9 +156,12 @@ fun TermuxSetup() {
                 Spacer(Modifier.height(10.dp))
                 GhostButton("Otwórz ustawienia CYPHR") { context.startActivity(Termux.ownSettingsIntent(context)) }
             } else {
-                Lead("CYPHR nie ma jeszcze zgody na zlecanie poleceń Termuksowi.")
+                Lead(
+                    "CYPHR poprosi o zgodę sam, gdy pierwsze polecenie pójdzie do Termuksa — " +
+                        "z terminala albo od modelu. Możesz dać ją też od razu.",
+                )
                 Spacer(Modifier.height(10.dp))
-                GhostButton("Poproś o uprawnienie") { ask.launch(Termux.PERMISSION) }
+                GhostButton("Daj zgodę teraz") { ask.launch(Termux.PERMISSION) }
             }
         }
 

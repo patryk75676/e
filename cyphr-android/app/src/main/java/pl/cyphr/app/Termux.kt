@@ -214,6 +214,9 @@ object Termux {
     /** Czy polecenia moga teraz isc do Termuxa. */
     suspend fun ready(context: Context): Boolean = check(context).state == State.Ready
 
+    /** Zapomina zapamietany stan — np. po udzieleniu zgody, zeby nastepne sprawdzenie bylo swieze. */
+    fun forget() { lastCheck = null }
+
     /**
      * Uruchamia polecenie w Termuxie w katalogu [workdir] i czeka na wynik najwyzej
      * [timeoutMs]. Po czasie przestajemy czekac — samo polecenie moze dalej dzialac

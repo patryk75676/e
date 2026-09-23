@@ -76,6 +76,8 @@ private fun SecureWindow(secure: Boolean) {
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Okno zgody na Termuxa musi byc zarejestrowane przed startem aktywnosci.
+        TermuxPermission.register(this)
         enableEdgeToEdge()
         SecureStore.init(this)
         Prefs.init(this)
@@ -480,14 +482,14 @@ private fun CyphrApp(
                     // konkretnej paczki — to je Google porownuje z konsola, wiec
                     // da sie je zestawic pole po polu bez zgadywania.
                     CommonStatusCodes.DEVELOPER_ERROR ->
-                        "Kod 10: Google nie rozpoznaje tej wersji aplikacji.\n\n" +
-                            "W Google Cloud Console klient OAuth typu Android musi być " +
-                            "w tym samym projekcie co klient Web i mieć dokładnie:\n\n" +
-                            "pakiet: ${context.packageName}\n" +
-                            "SHA-1: ${podpisSha1(context)}\n" +
-                            "projekt: ${BuildConfig.GOOGLE_WEB_CLIENT_ID.substringBefore('-')}\n\n" +
-                            "Jeśli wszystko się zgadza, Google propaguje nowe wpisy " +
-                            "od 5 minut do kilku godzin."
+                        "Kod 10: Google nie dopasował aplikacji do konsoli.\n\n" +
+                            "W projekcie ${BuildConfig.GOOGLE_WEB_CLIENT_ID.substringBefore('-')} " +
+                            "muszą być dwa klienty OAuth:\n\n" +
+                            "Android — pakiet ${context.packageName}, SHA-1:\n${podpisSha1(context)}\n\n" +
+                            "Aplikacja internetowa — to jej identyfikator wysyła aplikacja:\n" +
+                            "${BuildConfig.GOOGLE_WEB_CLIENT_ID}\n\n" +
+                            "Ten drugi nie może być klientem Android. Nowe wpisy Google " +
+                            "propaguje od 5 minut do kilku godzin."
                     CommonStatusCodes.NETWORK_ERROR -> "Brak połączenia z Google."
                     GoogleSignInStatusCodes.SIGN_IN_FAILED ->
                         "Google odrzucił logowanie. Upewnij się, że ekran zgody OAuth " +
