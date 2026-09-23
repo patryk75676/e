@@ -30,13 +30,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Powrot ze strony logowania Google: cyphr://google?id_token=... -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="cyphr" android:host="google" />
-            </intent-filter>
+            <!-- Nie ma tu linku cyphr://google — przyjmowal token logowania od dowolnej
+                 strony. Logowanie Google idzie tylko natywnym wyborem konta. -->
         </activity>
     </application>
 </manifest>

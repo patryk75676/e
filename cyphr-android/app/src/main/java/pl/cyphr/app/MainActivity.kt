@@ -64,14 +64,6 @@ private fun SecureWindow(secure: Boolean) {
     }
 }
 
-/**
- * Token przyniesiony z przegladarki po logowaniu Google na stronie.
- * Aktywnosc dziala w trybie singleTask, wiec powrot trafia do onNewIntent,
- * a nie tworzy nowej instancji.
- */
-private val webGoogleToken = mutableStateOf<String?>(null)
-
-
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,25 +71,18 @@ class MainActivity : FragmentActivity() {
         SecureStore.init(this)
         Prefs.init(this)
         Api.load(this)
-        catchGoogleReturn(intent)
+        // Logowanie Google idzie wylacznie natywnym wyborem konta. Dawny powrot
+        // z przegladarki (cyphr://google?id_token=...) przyjmowal token od dowolnej
+        // strony albo aplikacji — mogla zalogowac telefon na cudze konto. Usuniety.
         setContent { CyphrTheme { CyphrGate(this) } }
     }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        catchGoogleReturn(intent)
-    }
-
-    private fun catchGoogleReturn(intent: Intent?) {
-        val data = intent?.data ?: return
-        if (data.scheme == "cyphr" && data.host == "google") {
-            data.getQueryParameter("id_token")?.takeIf { it.isNotBlank() }?.let {
-                webGoogleToken.value = it
-            }
-        }
-    }
 }
+
+/**
+ * Prosba o drugi skladnik przy nowym logowaniu albo wejsciu na inne zapamietane konto.
+ * [onFail] dostaje powod od systemu albo null, gdy uzytkownik sam zrezygnowal.
+ */
+private class SecondFactor(val reason: String, val onOk: () -> Unit, val onFail: (String?) -> Unit)
 
 /**
  * Brama aplikacji. Drugi skladnik logowania: system pyta tym, co ma dany telefon,
@@ -111,6 +96,9 @@ private fun CyphrGate(activity: FragmentActivity) {
     var problem by remember { mutableStateOf<String?>(null) }
     var leftAt by remember { mutableStateOf(0L) }
 
+    // Logowanie czekajace, az telefon bedzie mial czym potwierdzic tozsamosc.
+    var pending by remember { mutableStateOf<SecondFactor?>(null) }
+
     fun ask(reason: String) {
         Biometrics.prompt(
             activity = activity,
@@ -118,6 +106,22 @@ private fun CyphrGate(activity: FragmentActivity) {
             onSuccess = { unlocked = true; problem = null },
             onFailure = { problem = it },
         )
+    }
+
+    /**
+     * Drugi skladnik, ktorego nie da sie ominac. Wczesniej telefon bez blokady ekranu
+     * wpuszczal na konto bez niego — czyli wystarczylo zdjac blokade, zeby wylaczyc 2FA.
+     * Teraz logowanie czeka na ekranie „Ustaw blokade” i rusza samo po powrocie.
+     */
+    fun confirm(request: SecondFactor) {
+        val state = Biometrics.state(activity)
+        bio = state
+        if (state is Biometrics.State.Ready) {
+            pending = null
+            Biometrics.prompt(activity, request.reason, onSuccess = request.onOk, onFailure = request.onFail)
+        } else {
+            pending = request
+        }
     }
 
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -128,6 +132,8 @@ private fun CyphrGate(activity: FragmentActivity) {
                 androidx.lifecycle.Lifecycle.Event.ON_START -> {
                     // Stan moze sie zmienic, gdy ktos w miedzyczasie dopisal odcisk w ustawieniach
                     bio = Biometrics.state(activity)
+                    // Powrot z ustawien z gotowa blokada: czekajace logowanie rusza dalej.
+                    pending?.let { if (bio is Biometrics.State.Ready) confirm(it) }
                     val away = (System.currentTimeMillis() - leftAt) / 1000
                     if (bio is Biometrics.State.Ready && Prefs.appLock && leftAt > 0L &&
                         away >= Prefs.lockAfterSeconds && Api.token() != null
@@ -145,12 +151,26 @@ private fun CyphrGate(activity: FragmentActivity) {
     LaunchedEffect(unlocked) { if (!unlocked) ask("Potwierdź, że to Ty") }
 
     if (unlocked) {
-        CyphrApp(
-            requireFingerprint = { reason, onOk ->
-                if (Biometrics.state(activity) !is Biometrics.State.Ready) onOk()
-                else Biometrics.prompt(activity, reason, onSuccess = onOk)
-            },
-        )
+        // Nakladka zamiast podmiany ekranu: CyphrApp zostaje w pamieci, wiec nie
+        // traci wpisanego e-maila ani nie odtwarza sesji z juz zapisanego tokenu.
+        Box(Modifier.fillMaxSize()) {
+            CyphrApp(
+                // Tylko potwierdzanie zakupu — to da sie wylaczyc, wiec bez blokady przechodzi.
+                requireFingerprint = { reason, onOk ->
+                    if (Biometrics.state(activity) !is Biometrics.State.Ready) onOk()
+                    else Biometrics.prompt(activity, reason, onSuccess = onOk)
+                },
+                requireSecondFactor = { reason, onOk, onFail -> confirm(SecondFactor(reason, onOk, onFail)) },
+            )
+            pending?.let { request ->
+                LockRequired(
+                    state = bio,
+                    onSetUp = { activity.startActivity(Biometrics.enrollIntent()) },
+                    onRetry = { confirm(request) },
+                    onCancel = { pending = null; request.onFail(null) },
+                )
+            }
+        }
     } else {
         val ready = bio as? Biometrics.State.Ready
         Column(
@@ -186,8 +206,58 @@ private fun CyphrGate(activity: FragmentActivity) {
     }
 }
 
+/**
+ * Ekran zamiast logowania, gdy telefon nie ma czym potwierdzic tozsamosci.
+ * Drugi skladnik jest obowiazkowy, wiec jedyne wyjscia to ustawic blokade albo zrezygnowac.
+ */
 @Composable
-private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok -> ok() }) {
+private fun LockRequired(
+    state: Biometrics.State,
+    onSetUp: () -> Unit,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    BackHandler(onBack = onCancel)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Ink)
+            .clickable(enabled = false) {}
+            .padding(horizontal = 26.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Ghost(size = 110.dp, floating = true)
+        Spacer(Modifier.height(24.dp))
+        Text("Potrzebna blokada ekranu", color = Paper, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(Modifier.height(10.dp))
+        Lead(
+            when (state) {
+                Biometrics.State.None ->
+                    "To urządzenie nie potrafi potwierdzić tożsamości, a bez tego CYPHR nie otworzy konta."
+                Biometrics.State.Unavailable ->
+                    "Czytnik jest chwilowo niedostępny. Spróbuj za moment."
+                else ->
+                    "Po zalogowaniu CYPHR prosi o drugi składnik — odcisk palca, twarz albo kod ekranu. " +
+                        "Ten telefon nie ma jeszcze ustawionej blokady. Ustaw ją i wróć, logowanie ruszy samo."
+            },
+            center = true,
+        )
+        Spacer(Modifier.height(22.dp))
+        Box(Modifier.width(250.dp)) {
+            if (state is Biometrics.State.NotEnrolled) PrimaryButton("Ustaw blokadę", onClick = onSetUp)
+            else PrimaryButton("Spróbuj ponownie", onClick = onRetry)
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.width(250.dp)) { GhostButton("Anuluj logowanie", onClick = onCancel) }
+    }
+}
+
+@Composable
+private fun CyphrApp(
+    requireFingerprint: (String, () -> Unit) -> Unit = { _, ok -> ok() },
+    requireSecondFactor: (String, () -> Unit, (String?) -> Unit) -> Unit = { _, ok, _ -> ok() },
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -199,6 +269,8 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
     var error by remember { mutableStateOf<String?>(null) }
     var pendingEmail by remember { mutableStateOf("") }
     var cooldown by remember { mutableStateOf(0) }
+    // Rosnie, gdy serwer odrzuci sam kod z maila — wtedy pole kodu sie czysci.
+    var codeRejected by remember { mutableStateOf(0) }
     var tab by remember { mutableStateOf(Tab.Chat) }
     var agents by remember { mutableStateOf<List<Agent>>(emptyList()) }
     var selectedAgent by remember { mutableStateOf(Prefs.agent) }
@@ -278,9 +350,81 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
         route = Route.Main
     }
 
+    /**
+     * Serwer wydal juz token, ale bez drugiego skladnika logowanie sie nie odbylo.
+     * Porzucamy te sesje takze na serwerze, zamiast zostawiac wazny token w schowku.
+     */
+    fun abandonLogin(u: User) {
+        val abandoned = Api.token()
+        // Lokalnie od razu — gdyby czyscic dopiero po odpowiedzi serwera, szybkie
+        // ponowne logowanie zostaloby skasowane przez spoznione wylogowanie.
+        Api.saveToken(context, null)
+        Accounts.remove(u.id)
+        accounts = Accounts.all()
+        if (abandoned != null) scope.launch { Api.revoke(abandoned) }
+    }
+
     /** Nowe logowanie przechodzi przez drugi składnik. Wznowienie sesji nie, bo brama już pytała. */
     fun enterApp(u: User) {
-        requireFingerprint("Potwierdź logowanie") { accounts = Accounts.all(); open(u) }
+        requireSecondFactor(
+            "Potwierdź logowanie",
+            { accounts = Accounts.all(); open(u) },
+            { reason ->
+                abandonLogin(u)
+                route = Route.Auth
+                error = reason ?: "Logowanie przerwane — bez potwierdzenia tożsamości konto się nie otworzy."
+            },
+        )
+    }
+
+    /** Wejscie na zapamietane konto to tez logowanie — z drugim skladnikiem. */
+    fun switchTo(acc: Account, onRefused: () -> Unit = {}) {
+        requireSecondFactor(
+            "Wejdź na ${acc.email}",
+            {
+                scope.launch {
+                    Api.useAccount(context, acc)
+                    user = Api.cachedUser()
+                    usage = null; shop = null; plan = null
+                    agents = emptyList(); lastTokens = null
+                    accounts = Accounts.all()
+                    tab = Tab.Chat
+                    route = Route.Main
+                    user = try { Api.me() } catch (e: Exception) { user }
+                }
+            },
+            { reason ->
+                reason?.let { toast = it }
+                onRefused()
+            },
+        )
+    }
+
+    /**
+     * Wylogowanie biezacego konta. Gdy na telefonie zostaly inne zapamietane konta,
+     * proponujemy wejscie na kolejne — ale z odciskiem, a nie po cichu jak wczesniej.
+     */
+    fun logout() {
+        scope.launch {
+            busy = true
+            val gone = user?.id
+            Api.logout(context)
+            googleClient.signOut()
+            gone?.let { Accounts.remove(it) }
+            accounts = Accounts.all()
+            usage = null; shop = null; plan = null
+            agents = emptyList(); lastTokens = null
+            busy = false
+            // Rozmowy zostaja na dysku pod kontem — wroca po zalogowaniu.
+            user = null
+            val next = accounts.firstOrNull()
+            if (next == null) {
+                route = Route.Auth
+            } else {
+                route = Route.Splash
+                switchTo(next) { route = Route.Auth }
+            }
+        }
     }
 
     suspend fun loadAgents() {
@@ -355,23 +499,6 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
         if (restored != null) open(restored) else route = Route.Auth
     }
 
-    // Powrot ze strony logowania Google. Token jest jednorazowy, wiec od razu go zerujemy,
-    // zeby ponowne wejscie do aplikacji nie probowalo logowac drugi raz.
-    LaunchedEffect(webGoogleToken.value) {
-        val idToken = webGoogleToken.value ?: return@LaunchedEffect
-        webGoogleToken.value = null
-        busy = true
-        error = null
-        try {
-            Api.google(context, idToken)?.let { enterApp(it) }
-        } catch (e: Exception) {
-            error = e.message
-            route = Route.Auth
-        } finally {
-            busy = false
-        }
-    }
-
     LaunchedEffect(cooldown) { if (cooldown > 0) { delay(1000); cooldown -= 1 } }
     LaunchedEffect(toast) { if (toast != null) { delay(2600); toast = null } }
 
@@ -422,6 +549,9 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                 Route.Auth -> AuthScreen(
                     busy = busy,
                     error = error,
+                    initialEmail = pendingEmail,
+                    saved = accounts,
+                    onUseSaved = { acc -> error = null; switchTo(acc) },
                     onGoogle = {
                         error = null
                         // Tylko natywny wybor konta — zadnej przegladarki. signOut()
@@ -478,6 +608,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                     busy = busy,
                     error = error,
                     cooldown = cooldown,
+                    codeRejected = codeRejected,
                     onBack = { error = null; route = Route.Auth },
                     onResend = {
                         scope.launch {
@@ -492,7 +623,11 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                         else scope.launch {
                             busy = true
                             try { Api.verify(context, pendingEmail, code)?.let { enterApp(it) } }
-                            catch (e: Exception) { error = e.message }
+                            catch (e: Exception) {
+                                error = e.message
+                                val retryable = e is ApiError && (e.status == 429 || e.code == "offline" || e.status >= 500)
+                                if (!retryable) codeRejected++
+                            }
                             finally { busy = false }
                         }
                     },
@@ -503,6 +638,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                     busy = busy,
                     error = error,
                     cooldown = cooldown,
+                    codeRejected = codeRejected,
                     onBack = { error = null; route = Route.Auth },
                     onResend = {
                         scope.launch {
@@ -529,11 +665,25 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                 // odbilo sie od limitera, nie wolno tego pokazac
                                 // jako bledu zmiany hasla.
                                 try {
-                                    Api.login(context, pendingEmail, haslo)?.let { enterApp(it) }
-                                        ?: run { error = "Hasło zmienione. Zaloguj się nim." }
+                                    val u = Api.login(context, pendingEmail, haslo)
+                                    if (u != null) {
+                                        enterApp(u)
+                                    } else {
+                                        // Konto bez potwierdzonego adresu — serwer wyslal kod.
+                                        error = null; cooldown = 60; route = Route.Verify
+                                    }
                                 } catch (e: Exception) {
+                                    // E-mail zostaje wpisany na ekranie logowania, wiec wystarczy
+                                    // nowe haslo. Przy limiterze mowimy wprost, ile odczekac —
+                                    // wczesniej zapraszalismy do logowania prosto w ten sam limit.
                                     route = Route.Auth
-                                    toast = "Hasło zmienione. Zaloguj się nowym hasłem."
+                                    when {
+                                        e is ApiError && e.code == "not_verified" -> {
+                                            error = null; cooldown = 60; route = Route.Verify
+                                        }
+                                        e is ApiError && e.status == 429 -> error = "Hasło zmienione. ${e.message}"
+                                        else -> { error = null; toast = "Hasło zmienione. Zaloguj się nowym hasłem." }
+                                    }
                                 }
                             } catch (e: Exception) {
                                 // Odbicie od limitera nie uniewaznia kodu z maila.
@@ -541,6 +691,9 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                     "${e.message} Twój kod jest dalej ważny."
                                 } else {
                                     e.message
+                                }
+                                if (e is ApiError && e.code in setOf("code_invalid", "code_expired", "too_many")) {
+                                    codeRejected++
                                 }
                             } finally { busy = false }
                         }
@@ -556,28 +709,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                             agentName = agents.firstOrNull { it.id == selectedAgent }?.name ?: selectedAgent,
                             onTerminal = { route = Route.Terminal },
                             onClosed = { toast = "Zapisano adres API." },
-                            onLogout = {
-                                scope.launch {
-                                    val gone = user?.id
-                                    Api.logout(context)
-                                    googleClient.signOut()
-                                    gone?.let { Accounts.remove(it) }
-                                    accounts = Accounts.all()
-                                    usage = null; shop = null; plan = null
-                                    agents = emptyList()
-                                    // Rozmowy zostaja na dysku pod kontem — wroca po zalogowaniu.
-                                    val next = accounts.firstOrNull()
-                                    if (next == null) {
-                                        user = null
-                                        route = Route.Auth
-                                    } else {
-                                        Api.useAccount(context, next)
-                                        user = Api.cachedUser()
-                                        user = try { Api.me() } catch (e: Exception) { user }
-                                        route = Route.Main
-                                    }
-                                }
-                            },
+                            onLogout = { logout() },
                         )
                     }
                 }
@@ -741,23 +873,13 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                     plan = plan,
                                     busy = busy,
                                     accounts = accounts,
-                                    onSwitch = { acc ->
-                                        // Token drugiego konta lezy w szyfrowanym schowku,
-                                        // wiec przed wejsciem na nie prosimy o odcisk.
-                                        requireFingerprint("Przełącz na ${acc.email}") {
-                                            scope.launch {
-                                                Api.useAccount(context, acc)
-                                                user = Api.cachedUser()
-                                                usage = null; shop = null; plan = null
-                                                agents = emptyList(); lastTokens = null
-                                                user = try { Api.me() } catch (e: Exception) { user }
-                                                accounts = Accounts.all()
-                                                tab = Tab.Chat
-                                            }
-                                        }
-                                    },
+                                    // Token drugiego konta lezy w szyfrowanym schowku,
+                                    // wiec przed wejsciem na nie prosimy o drugi skladnik.
+                                    onSwitch = { acc -> switchTo(acc) },
                                     onAddAccount = {
                                         // Nowe logowanie, ale bez kasowania juz zapamietanych kont.
+                                        // Inne konto = inny adres, wiec pole zaczyna puste.
+                                        pendingEmail = ""
                                         Api.saveToken(context, null)
                                         user = null; usage = null; shop = null; plan = null
                                         agents = emptyList()
@@ -765,30 +887,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                     },
                                     onSettings = { route = Route.Settings },
                                     onTopUp = { tab = Tab.Shop },
-                                ) {
-                                    scope.launch {
-                                        busy = true
-                                        val gone = user?.id
-                                        Api.logout(context)
-                                        googleClient.signOut()
-                                        gone?.let { Accounts.remove(it) }
-                                        accounts = Accounts.all()
-                                        busy = false
-                                        usage = null; shop = null; plan = null
-                                        agents = emptyList()
-                                        // Rozmowy zostaja na dysku pod kontem — wroca po zalogowaniu.
-                                        val next = accounts.firstOrNull()
-                                        if (next == null) {
-                                            user = null
-                                            route = Route.Auth
-                                        } else {
-                                            Api.useAccount(context, next)
-                                            user = Api.cachedUser()
-                                            user = try { Api.me() } catch (e: Exception) { user }
-                                            tab = Tab.Chat
-                                        }
-                                    }
-                                }
+                                ) { logout() }
                             }
                         }
                     }

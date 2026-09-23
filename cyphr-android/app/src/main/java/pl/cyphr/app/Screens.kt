@@ -92,9 +92,14 @@ fun AuthScreen(
     onGoogle: () -> Unit,
     onForgot: (email: String) -> Unit,
     onSubmit: (register: Boolean, email: String, password: String, name: String) -> Unit,
+    // Po resecie hasla albo powrocie z kodu adres jest juz znany — nie kazemy go przepisywac.
+    initialEmail: String = "",
+    // Konta zapamietane na telefonie. Bez tego „Zaloguj inne konto” bylo droga bez powrotu.
+    saved: List<Account> = emptyList(),
+    onUseSaved: (Account) -> Unit = {},
 ) {
     var register by remember { mutableStateOf(false) }
-    var email by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf(initialEmail) }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     val enter = remember { Animatable(0f) }
@@ -162,6 +167,17 @@ fun AuthScreen(
                 Text("Nie pamiętam hasła", color = Mist, fontSize = 14.sp)
             }
         }
+
+        if (!register && saved.isNotEmpty()) {
+            Spacer(Modifier.height(18.dp))
+            Divider("zapamiętane na telefonie")
+            Spacer(Modifier.height(12.dp))
+            saved.forEach { acc ->
+                GhostButton(acc.email, enabled = !busy) { onUseSaved(acc) }
+                Spacer(Modifier.height(8.dp))
+            }
+            Lead("Wejście na zapamiętane konto potwierdzasz odciskiem.", center = true)
+        }
         Spacer(Modifier.height(8.dp))
     }
 }
@@ -176,6 +192,7 @@ fun ResetScreen(
     busy: Boolean,
     error: String?,
     cooldown: Int,
+    codeRejected: Int,
     onBack: () -> Unit,
     onResend: () -> Unit,
     onSubmit: (code: String, password: String) -> Unit,
@@ -184,7 +201,9 @@ fun ResetScreen(
     var haslo by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    LaunchedEffect(error) { if (error != null && code.length == 6) code = "" }
+    // Pole kodu czyscimy tylko, gdy serwer odrzucil sam kod. Wczesniej znikal przy
+    // kazdym bledzie — takze przy za krotkim hasle albo limiterze, choc kod byl dobry.
+    LaunchedEffect(codeRejected) { if (codeRejected > 0) code = "" }
 
     Column(
         Modifier
@@ -259,6 +278,7 @@ fun VerifyScreen(
     busy: Boolean,
     error: String?,
     cooldown: Int,
+    codeRejected: Int,
     onBack: () -> Unit,
     onResend: () -> Unit,
     onSubmit: (String) -> Unit,
@@ -267,7 +287,8 @@ fun VerifyScreen(
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     // Po odrzuconym kodzie pole samo sie czysci — inaczej trzeba kasowac szesc cyfr.
-    LaunchedEffect(error) { if (error != null && code.length == 6) code = "" }
+    // Ale nie przy limiterze czy braku sieci: wtedy kod jest dobry i wystarczy ponowic.
+    LaunchedEffect(codeRejected) { if (codeRejected > 0) code = "" }
 
     Column(
         Modifier

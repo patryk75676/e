@@ -285,9 +285,10 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
                     is Biometrics.State.Ready ->
                         "Drugi składnik logowania na tym telefonie: $method. Po zalogowaniu kontem Google albo hasłem konto otwiera się dopiero po potwierdzeniu i tego nie da się wyłączyć."
                     Biometrics.State.NotEnrolled ->
-                        "Ten telefon nie ma jeszcze ustawionej blokady ekranu. Bez niej konto otworzy się bez drugiego składnika."
+                        "Ten telefon nie ma jeszcze ustawionej blokady ekranu. Bez niej nie da się zalogować " +
+                            "ani przełączyć konta — drugi składnik jest obowiązkowy."
                     Biometrics.State.None ->
-                        "To urządzenie nie obsługuje potwierdzania tożsamości, więc drugi składnik nie zadziała."
+                        "To urządzenie nie obsługuje potwierdzania tożsamości, więc nowe logowanie nie przejdzie."
                     Biometrics.State.Unavailable ->
                         "Czytnik jest chwilowo niedostępny."
                 },

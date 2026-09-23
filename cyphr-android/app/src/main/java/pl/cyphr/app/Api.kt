@@ -174,10 +174,15 @@ object Api {
         }
     }
 
-    private suspend fun call(path: String, method: String = "GET", body: JSONObject? = null): JSONObject =
+    private suspend fun call(
+        path: String,
+        method: String = "GET",
+        body: JSONObject? = null,
+        auth: String? = token,
+    ): JSONObject =
         withContext(Dispatchers.IO) {
             val builder = Request.Builder().url(base() + path)
-            token?.let { builder.header("Authorization", "Bearer $it") }
+            auth?.let { builder.header("Authorization", "Bearer $it") }
             when (method) {
                 "POST" -> builder.post((body ?: JSONObject()).toString().toRequestBody(json))
                 else -> builder.get()
@@ -461,5 +466,10 @@ object Api {
     suspend fun logout(ctx: Context) {
         try { call("/logout", "POST") } catch (_: Exception) {}
         saveToken(ctx, null)
+    }
+
+    /** Uniewaznia na serwerze konkretny token, nie ruszajac biezacej sesji. */
+    suspend fun revoke(sessionToken: String) {
+        try { call("/logout", "POST", auth = sessionToken) } catch (_: Exception) {}
     }
 }
