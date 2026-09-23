@@ -77,6 +77,25 @@ class TermuxTest {
     }
 
     @Test
+    fun `Termux z Google Play bez zgody RUN_COMMAND to nie odmowa, tylko inna wersja`() {
+        // Brak zgody w systemie nie moze konczyc sie „odrzucono na stale” — tej zgody tam po prostu nie ma.
+        assertEquals(
+            Termux.State.NoCommandApi,
+            Termux.diagnose(true, null, permission = false, probe = null, commandApi = false),
+        )
+        // Niezainstalowany dalej ma pierwszenstwo.
+        assertEquals(
+            Termux.State.NotInstalled,
+            Termux.diagnose(false, null, permission = false, probe = null, commandApi = false),
+        )
+        assertTrue(Termux.isPlayBuild("googleplay.2026.06.21"))
+        assertFalse(Termux.isPlayBuild("0.118.3"))
+        assertFalse(Termux.isPlayBuild(null))
+        // Wersja z Play nie jest brana za „za stara” — rozstrzyga brak zgody, nie numer.
+        assertNull(Termux.supportsResults("googleplay.2026.06.21", 1_000))
+    }
+
+    @Test
     fun `diagnoza rozroznia blokade, cisze i odmowe startu`() {
         fun fail(f: Termux.Failure) = Termux.Result("", "", -1, failure = f)
         assertEquals(Termux.State.ExternalAppsBlocked, Termux.diagnose(true, true, true, fail(Termux.Failure.ExternalAppsBlocked)))

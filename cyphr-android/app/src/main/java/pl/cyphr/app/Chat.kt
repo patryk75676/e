@@ -11,6 +11,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -20,6 +24,8 @@ import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.background
@@ -76,15 +82,61 @@ fun ChatTab(
     memory: Memory,
     chatTitle: String,
     chatId: String,
-    onSend: (String) -> Unit,
+    /** Tekst i zalaczniki z pola wpisywania. */
+    onSend: (String, List<Attachment>) -> Unit,
     onPickAgent: () -> Unit,
     onOpenChats: () -> Unit,
     /** Usuwa wiadomosc o tym indeksie; zwraca, czy sie udalo. */
     onDelete: (Int) -> Boolean = { false },
+    /** Zalaczniki czekajace na wyslanie i liczba tych, ktore jeszcze sie wczytuja. */
+    staged: List<Attachment> = emptyList(),
+    importing: Int = 0,
+    onAttach: (List<Uri>) -> Unit = {},
+    onPaste: () -> Unit = {},
+    onRemoveAttachment: (Attachment) -> Unit = {},
+    /** Limit obrazow na dzis; null — serwer nie tworzy obrazow. */
+    images: ImageQuota? = null,
+    /** Model wlasnie tworzy obraz w tej rozmowie. */
+    drawing: Boolean = false,
+    /** Krotki komunikat na dole ekranu (np. „Zapisano w galerii”). */
+    onNote: (String) -> Unit = {},
+    /** Tekst udostepniony z innej aplikacji — trafia do pola raz. */
+    sharedText: String? = null,
+    onSharedTextUsed: () -> Unit = {},
 ) {
     // TextFieldValue, a nie String: po wstawieniu podpowiedzi kursor ma stac na koncu.
     var draft by remember { mutableStateOf(TextFieldValue("")) }
     val input = remember { FocusRequester() }
+    val context = LocalContext.current
+    var menuOpen by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<Attachment?>(null) }
+
+    // Obraz w schowku (np. skopiowany zrzut ekranu): podpowiedz „Wklej” — raz dla kazdego
+    // nowego obrazu. Samo sprawdzenie niczego ze schowka nie czyta.
+    var clip by remember { mutableStateOf<Long?>(null) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) clip = Composer.clipboardImage(context)
+        }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+    }
+    val canAttach = staged.size + importing < Attachments.MAX_PER_MESSAGE
+
+    val pickImages = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(Attachments.MAX_PER_MESSAGE),
+    ) { uris -> if (uris.isNotEmpty()) onAttach(uris) }
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) onAttach(uris)
+    }
+
+    LaunchedEffect(sharedText) {
+        val shared = sharedText ?: return@LaunchedEffect
+        val joined = listOf(draft.text, shared).filter { it.isNotBlank() }.joinToString("\n")
+        draft = TextFieldValue(joined, TextRange(joined.length))
+        onSharedTextUsed()
+    }
     // Kazda rozmowa otwiera sie na dole, bez przewijania przez cala historie.
     val listState = remember(chatId) { LazyListState((messages.size - 1).coerceAtLeast(0)) }
 
@@ -107,8 +159,9 @@ fun ChatTab(
     // To, co faktycznie leci do modelu: notatka z zwinietej czesci plus swieze
     // wiadomosci. Liczone przy zmianie rozmowy, nie przy kazdym nacisnieciu klawisza.
     val contextTokens = remember(messages, memory) {
-        estimateTokens(memory.summary) + freshOf(messages, memory).sumOf { estimateTokens(it.text) }
+        estimateTokens(memory.summary) + freshOf(messages, memory).sumOf { messageTokens(it) }
     }
+    val stagedTokens = remember(staged) { messageTokens(ChatMessage("", true, staged)) }
     val folded = remember(messages, memory) { memory.folded.coerceAtMost(messages.size) }
 
     // Nowa wiadomosc przewija na dol. Usunieta — nie: usuwasz cos ze srodka historii
@@ -157,13 +210,13 @@ fun ChatTab(
 
         // Licznik ma sens dopiero, gdy jest co liczyc — w pustej rozmowie to tylko szum.
         AnimatedVisibility(
-            visible = messages.isNotEmpty() || draft.text.isNotEmpty(),
+            visible = messages.isNotEmpty() || draft.text.isNotEmpty() || staged.isNotEmpty(),
             enter = fadeIn(motionSpec(200)) + expandVertically(motionSpec(200)),
             exit = fadeOut(motionSpec(150)) + shrinkVertically(motionSpec(150)),
         ) {
             TokenBar(
                 context = contextTokens,
-                draft = estimateTokens(draft.text),
+                draft = estimateTokens(draft.text) + stagedTokens,
                 last = lastTokens,
                 folded = folded,
             )
@@ -195,7 +248,8 @@ fun ChatTab(
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            suggestions.forEach { s ->
+                            (suggestions + listOfNotNull(images?.takeIf { it.left > 0 }?.let { Suggestion("Stwórz obraz", "Stwórz obraz: ") }))
+                                .forEach { s ->
                                 Text(
                                     s.label,
                                     color = Paper,
@@ -224,6 +278,8 @@ fun ChatTab(
                     itemsIndexed(messages, key = { i, _ -> keys[i] }) { i, message ->
                         Bubble(
                             message = message,
+                            onOpenMedia = { viewing = it },
+                            onNote = onNote,
                             typing = !message.fromUser && i >= typed,
                             animate = i >= baseline,
                             onTyped = { if (typed <= i) typed = i + 1 },
@@ -236,26 +292,65 @@ fun ChatTab(
                             modifier = Modifier.animateItemPlacement(motionSpec(260)),
                         )
                     }
-                    if (thinking) item(key = "typing") { TypingBubble(agent) }
+                    if (thinking) {
+                        item(key = "typing") {
+                            // Model skonczyl pisac i prosil o obraz — zamiast kropek powstajacy obraz.
+                            if (drawing) DrawingBubble() else TypingBubble(agent)
+                        }
+                    }
                 }
             }
         }
 
-        val enabled = draft.text.isNotBlank() && !thinking
+        // Sam obraz bez slowa tez mozna wyslac. Czekamy tylko, az pliki sie wczytaja.
+        val enabled = (draft.text.isNotBlank() || staged.isNotEmpty()) && importing == 0 && !thinking
         val send = {
             if (enabled) {
-                onSend(draft.text.trim())
+                onSend(draft.text.trim(), staged)
                 draft = TextFieldValue("")
             }
         }
+        StagedStrip(staged, importing, onRemove = onRemoveAttachment, onOpen = { viewing = it })
+        PasteChip(
+            visible = clip != null && clip != Composer.clipHandled && canAttach,
+            onPaste = { Composer.clipHandled = clip; onPaste() },
+            onDismiss = { Composer.clipHandled = clip },
+        )
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            Box(Modifier.padding(bottom = 4.dp)) {
+                AttachButton(open = menuOpen) {
+                    clip = Composer.clipboardImage(context)
+                    if (canAttach) menuOpen = true else onNote("Najwyżej ${Attachments.MAX_PER_MESSAGE} załączniki w jednej wiadomości.")
+                }
+                AttachMenu(
+                    expanded = menuOpen,
+                    onDismiss = { menuOpen = false },
+                    onPhotos = {
+                        pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onFiles = {
+                        pickFiles.launch(
+                            arrayOf("image/*", "application/pdf", "text/*", "application/json", "application/xml", "application/octet-stream"),
+                        )
+                    },
+                    onPaste = if (clip != null) ({ Composer.clipHandled = clip; onPaste() }) else null,
+                    images = images,
+                    onCreateImage = {
+                        val start = "Stwórz obraz: "
+                        draft = TextFieldValue(start, TextRange(start.length))
+                        input.requestFocus()
+                    },
+                )
+            }
+            Spacer(Modifier.width(8.dp))
             TextField(
                 value = draft,
                 onValueChange = { draft = it },
-                placeholder = { Text("Napisz wiadomość", color = Mist) },
+                // Jedna linia: na waskim ekranie obok „+” podpowiedz nie moze rozpychac pola.
+                placeholder = { Text("Napisz wiadomość", color = Mist, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 maxLines = 5,
                 shape = RoundedCornerShape(26.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -268,7 +363,11 @@ fun ChatTab(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                 ),
-                modifier = Modifier.weight(1f).focusRequester(input),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(input)
+                    // Przy wejsciu w pole sprawdzamy schowek na nowo — mogl tam trafic zrzut ekranu.
+                    .onFocusChanged { if (it.isFocused) clip = Composer.clipboardImage(context) },
             )
             Spacer(Modifier.width(10.dp))
             val sendBg by animateColorAsState(if (enabled) Paper else Raise, motionSpec(180), label = "sendBg")
@@ -293,6 +392,8 @@ fun ChatTab(
             }
         }
     }
+
+    viewing?.let { a -> ImageViewer(a, onDismiss = { viewing = null }, onNote = onNote) }
 
     confirmDelete?.let { (index, message) ->
         AlertDialog(
@@ -404,6 +505,8 @@ private fun TokenBar(context: Int, draft: Int, last: Pair<Int, Int>?, folded: In
 @Composable
 private fun Bubble(
     message: ChatMessage,
+    onOpenMedia: (Attachment) -> Unit = {},
+    onNote: (String) -> Unit = {},
     typing: Boolean = false,
     animate: Boolean = true,
     onTyped: () -> Unit = {},
@@ -423,7 +526,8 @@ private fun Bubble(
     val total = remember(full) {
         if (message.fromUser) full.length else Markdown.visibleLength(Markdown.blocks(full))
     }
-    var shown by remember(message) { mutableStateOf(if (typing && Prefs.animations) 0 else total) }
+    // Od tekstu, nie od calej wiadomosci: dochodzacy obraz nie zaczyna pisania od nowa.
+    var shown by remember(full) { mutableStateOf(if (typing && Prefs.animations) 0 else total) }
     LaunchedEffect(typing) {
         if (!typing || !Prefs.animations) { shown = total; return@LaunchedEffect }
         val step = maxOf(1, total / 90)
@@ -440,11 +544,24 @@ private fun Bubble(
     } else {
         RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     }
+    val hasText = full.isNotBlank()
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start,
     ) {
-        Box(
+        // Zdjecia i pliki uzytkownika nad jego tekstem — jak w komunikatorach.
+        if (message.fromUser && message.attachments.isNotEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth(0.86f)
+                    .wrapContentWidth(Alignment.End)
+                    .graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 10f * density },
+            ) {
+                MessageMedia(message.attachments, fromUser = true, onOpen = { a, _ -> onOpenMedia(a) }, onLongPress = onToggleActions, onNote = onNote)
+            }
+            if (hasText) Spacer(Modifier.height(6.dp))
+        }
+        if (hasText || message.attachments.isEmpty()) Box(
             Modifier
                 .fillMaxWidth(0.86f)
                 .wrapContentWidth(if (message.fromUser) Alignment.End else Alignment.Start)
@@ -483,6 +600,11 @@ private fun Bubble(
                 SelectionContainer { ChatMarkdown(full, Paper, visible = shown, caret = caret) }
             }
         }
+        // Obraz od modelu pod jego tekstem — pojawia sie, gdy tekst sie juz wypisal.
+        if (!message.fromUser && message.attachments.isNotEmpty() && !caret) {
+            if (hasText) Spacer(Modifier.height(8.dp))
+            MessageMedia(message.attachments, fromUser = false, onOpen = { a, _ -> onOpenMedia(a) }, onNote = onNote)
+        }
         if (message.fromUser) {
             AnimatedVisibility(
                 visible = actions,
@@ -490,11 +612,11 @@ private fun Bubble(
                 exit = fadeOut(motionSpec(140)) + shrinkVertically(motionSpec(180), shrinkTowards = Alignment.Top),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    CopyButton(full)
+                    if (hasText) CopyButton(full)
                     if (canDelete) ActionButton(R.drawable.ic_delete, "Usuń", onClick = onDelete)
                 }
             }
-        } else if (!caret) {
+        } else if (!caret && hasText) {
             CopyButton(full)
         }
     }

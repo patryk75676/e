@@ -5,6 +5,12 @@ Natywna aplikacja w Kotlinie i Jetpack Compose. Czarno-biała, z logo duszka.
 Zakładki:
 - **Czat** — rozmowa z wybranym modelem przez `/v1/chat/completions`, dymki z animacją wejścia,
   podpowiedzi na pustym ekranie, kopiowanie odpowiedzi jednym dotknięciem i wskaźnik „… myśli”.
+  Przycisk „+” dodaje do wiadomości zdjęcia i zrzuty ekranu (model je widzi), PDF-y
+  (pierwsze 4 strony jako obrazy) i pliki tekstowe; obraz ze schowka można wkleić,
+  a „Udostępnij → CYPHR” z innej aplikacji wkłada plik do pola wpisywania.
+  Model tworzy też obrazy — z dziennym limitem na konto, pilnowanym przez serwer
+  (`serwer/obrazy.js`). Po dłuższej przerwie (domyślnie godzina) aplikacja otwiera się
+  na nowej rozmowie; odpowiedź, która przyszła w tle, otwiera się zawsze.
 - **Agenci** — modele CYPHR (CYPHR Flash i CYPHR Pro) z ceną z `/v1/models`, wybór zapamiętywany na stałe.
   Modele występują wyłącznie pod nazwami CYPHR — pochodzenia nie pokazuje żaden ekran (`Persona.kt`).
 - **Sklep** — karta płatnicza rysowana w 3D (obrót, refleks światła, chip), zakup obraca kartę i kończy znakiem potwierdzenia. Płatność jest testowa.
@@ -56,8 +62,27 @@ Terminal ma dwa tryby:
   pierwszym poleceniu (z terminala albo od modelu). Stan połączenia i konfigurację
   krok po kroku pokazuje Ustawienia → Terminal.
 
+Termux z Google Play (wersje `googleplay.*`) nie przyjmuje poleceń od innych aplikacji —
+nie ma w nim uprawnienia `RUN_COMMAND`. Aplikacja rozpoznaje go i prosi o Termux z F-Droid.
+
 Trybu SSH już nie ma — aplikacja jest dla klientów, a starsze wersje przy pierwszym
 uruchomieniu nowej kasują zapisane dane SSH i własny adres serwera.
+
+## Obrazy na serwerze
+
+Tworzenie obrazów i większe zapytania czatu (zdjęcia) dokłada moduł `serwer/obrazy.js`.
+Wgraj `obrazy.js` i `dodaj-obrazy.js` do `~/cyphr-api` i uruchom:
+
+```
+cd ~/cyphr-api && node dodaj-obrazy.js
+```
+
+Instalator sprawdza klucz `ROUTEWAY_API_KEY` i model u dostawcy, tworzy jeden próbny
+obraz (ok. 0,01 USD; `--bez-testu` go pomija), zakłada tabelę `image_quota`, dopisuje
+jedną linię do pliku startowego, przeładowuje aplikację i sprawdza ją z zewnątrz —
+przy błędzie wszystko cofa. Wypięcie: `node dodaj-obrazy.js --usun`.
+Opcjonalnie w `.env`: `IMAGE_DAILY_LIMIT` (domyślnie 2), `IMAGE_MODEL`
+(domyślnie `z-image-turbo`), `IMAGE_TZ` (domyślnie `Europe/Warsaw`).
 
 ## 1. Ustawienia przed budowaniem
 

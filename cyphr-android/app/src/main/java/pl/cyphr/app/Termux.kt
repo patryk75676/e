@@ -68,7 +68,7 @@ object Termux {
         val truncated: Boolean = false,
     )
 
-    enum class State { NotInstalled, TooOld, NoPermission, ExternalAppsBlocked, NoReply, Failed, Ready }
+    enum class State { NotInstalled, NoCommandApi, TooOld, NoPermission, ExternalAppsBlocked, NoReply, Failed, Ready }
 
     /** Stan polaczenia razem z tym, co Termux sam powiedzial, gdy cos nie gra. */
     data class Status(val state: State, val detail: String? = null, val version: String? = null)
@@ -77,6 +77,30 @@ object Termux {
 
     fun hasPermission(context: Context): Boolean =
         context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Czy zainstalowany Termux w ogole przyjmuje polecenia od innych aplikacji. Termux z Google Play
+     * (wersje „googleplay.…”) to osobna aplikacja: nie definiuje zgody RUN_COMMAND ani uslugi, ktora
+     * ja obsluguje. Wtedy nie ma o co pytac ani czego wlaczac w ustawieniach — system od razu
+     * odpowiadal odmowa, a aplikacja brala to za „odrzucono na stale”.
+     */
+    fun acceptsCommands(context: Context): Boolean = try {
+        context.packageManager.getPermissionInfo(PERMISSION, 0)
+        true
+    } catch (e: PackageManager.NameNotFoundException) {
+        false
+    }
+
+    /** Nazwa zgody tak, jak pokazuje ja ten telefon w ustawieniach (Termux nadaje ja sam). */
+    fun permissionLabel(context: Context): String? = try {
+        val pm = context.packageManager
+        pm.getPermissionInfo(PERMISSION, 0).loadLabel(pm).toString().ifBlank { null }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Czy to Termux z Google Play — po nazwie wersji, ktora nadaje mu jego sklep. */
+    fun isPlayBuild(versionName: String?): Boolean = versionName?.trim()?.startsWith("googleplay") == true
 
     private fun packageInfo(context: Context) = try {
         context.packageManager.getPackageInfo(PACKAGE, 0)
@@ -106,6 +130,10 @@ object Termux {
         "mkdir -p ~/.termux && touch ~/.termux/termux.properties && " +
             "sed -i '/^[[:space:]]*allow-external-apps/d' ~/.termux/termux.properties && " +
             "echo 'allow-external-apps = true' >> ~/.termux/termux.properties"
+
+    /** Krotkie wyjasnienie dla Termuksa bez zgody RUN_COMMAND (wersja z Google Play). */
+    const val NO_COMMAND_API =
+        "Ten Termux (z Google Play) nie przyjmuje poleceń od innych aplikacji. Potrzebny jest Termux z F-Droid."
 
     /** Polecenie, ktore uzytkownik wkleja w Termuxie, zeby wpuscil polecenia z zewnatrz. */
     const val SETUP_COMMAND = "$SETUP_PROPERTIES && termux-reload-settings"
@@ -143,9 +171,19 @@ object Termux {
         return Result(out, errOut, exitCode ?: -1, errMsg?.takeIf { failure != null }, failure, truncated)
     }
 
-    /** Stan polaczenia, od najprostszej przyczyny do najtrudniejszej. */
-    internal fun diagnose(installed: Boolean, versionOk: Boolean?, permission: Boolean, probe: Result?): State = when {
+    /**
+     * Stan polaczenia, od najprostszej przyczyny do najtrudniejszej. [commandApi] — czy Termux
+     * w ogole ma zgode RUN_COMMAND (Termux z Google Play jej nie ma).
+     */
+    internal fun diagnose(
+        installed: Boolean,
+        versionOk: Boolean?,
+        permission: Boolean,
+        probe: Result?,
+        commandApi: Boolean = true,
+    ): State = when {
         !installed -> State.NotInstalled
+        !commandApi -> State.NoCommandApi
         versionOk == false -> State.TooOld
         !permission -> State.NoPermission
         probe == null -> State.Failed
@@ -204,9 +242,10 @@ object Termux {
             if (System.currentTimeMillis() - at < ttl) return status
         }
         val versionOk = installedSupportsResults(context)
+        val api = acceptsCommands(context)
         val permission = hasPermission(context)
-        val probe = if (versionOk != false && permission) run(context, "echo $MARKER", timeoutMs = 8_000) else null
-        val state = diagnose(true, versionOk, permission, probe)
+        val probe = if (api && versionOk != false && permission) run(context, "echo $MARKER", timeoutMs = 8_000) else null
+        val state = diagnose(true, versionOk, permission, probe, commandApi = api)
         val detail = probe?.errMsg ?: probe?.stderr?.takeIf { state == State.Failed && it.isNotBlank() }
         return Status(state, detail, info.versionName).also { lastCheck = System.currentTimeMillis() to it }
     }
@@ -223,6 +262,15 @@ object Termux {
      * w Termuxie, ale aplikacja nie stoi.
      */
     suspend fun run(context: Context, command: String, workdir: String = HOME, timeoutMs: Long = 60_000): Result {
+        if (isInstalled(context) && !acceptsCommands(context)) {
+            return Result(
+                stdout = "",
+                stderr = "",
+                exitCode = -1,
+                errMsg = NO_COMMAND_API,
+                failure = Failure.TermuxError,
+            )
+        }
         // Stara wersja (zwykle z Google Play) i tak nie odesle wyniku — nie ma na co czekac.
         if (installedSupportsResults(context) == false) {
             return Result(

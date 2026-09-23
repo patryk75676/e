@@ -84,17 +84,68 @@ class MainActivity : FragmentActivity() {
         // z przegladarki (cyphr://google?id_token=...) przyjmowal token od dowolnej
         // strony albo aplikacji — mogla zalogowac telefon na cudze konto. Usuniety.
         setContent { CyphrTheme { CyphrGate(this) } }
+        // Po odtworzeniu ekranu ten sam „Udostepnij” przyszedlby drugi raz.
+        if (savedInstanceState == null) receiveShared(intent)
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveShared(intent)
+    }
+
+    /**
+     * „Udostepnij → CYPHR” z innej aplikacji: zrzut ekranu, zdjecie, PDF albo tekst trafia
+     * do pola wpisywania. Nic nie jest wysylane samo — nawet przy zablokowanej aplikacji
+     * tylko czeka, az uzytkownik sam wysle.
+     */
+    private fun receiveShared(intent: Intent?) {
+        if (intent == null) return
+        val uris = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(streamOf(intent))
+            Intent.ACTION_SEND_MULTIPLE -> streamsOf(intent)
+            else -> return
+        }
+        Composer.add(this, uris, fromShare = true)
+        // CharSequence, nie String: czesc aplikacji wysyla tekst z formatowaniem.
+        intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }?.let { Composer.share(it.take(20_000)) }
+        // Jednorazowo: ten sam intent nie moze dodac plikow drugi raz.
+        setIntent(Intent(this, MainActivity::class.java))
+    }
+
+    @Suppress("DEPRECATION")
+    private fun streamOf(intent: Intent): Uri? =
+        if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else intent.getParcelableExtra(Intent.EXTRA_STREAM)
+
+    @Suppress("DEPRECATION")
+    private fun streamsOf(intent: Intent): List<Uri> =
+        (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)).orEmpty()
 
     override fun onStart() {
         super.onStart()
         // Ekran widac — wynik odpowiedzi pokaze sie w rozmowie, powiadomienie jest zbedne.
         ChatEngine.visible = true
         Notifications.clear(this)
+        // Ktora rozmowa po powrocie: z prosba o zgode, z odpowiedzia z tla, nowa po dluzszej
+        // przerwie albo ta sama, co przy wyjsciu.
+        ChatEngine.land(
+            Landing.decide(
+                now = System.currentTimeMillis(),
+                lastSeen = Prefs.lastSeen,
+                lastChat = Prefs.lastChat,
+                unseen = Prefs.unseenChat,
+                pending = ChatEngine.approval.value?.chatId,
+                afterSeconds = Prefs.newChatAfterSeconds,
+            ),
+        )
+        Prefs.setUnseenChat(null)
+        ChatEngine.refreshImages()
     }
 
     override fun onStop() {
         ChatEngine.visible = false
+        Prefs.setLeft(System.currentTimeMillis(), ChatEngine.activeId.value)
         super.onStop()
     }
 }
@@ -316,6 +367,11 @@ private fun CyphrApp(
     val busyChats by ChatEngine.busy.collectAsState()
     val lastTokens by ChatEngine.lastTokens.collectAsState()
     val approval by ChatEngine.approval.collectAsState()
+    val drawingChats by ChatEngine.drawing.collectAsState()
+    val images by ChatEngine.images.collectAsState()
+    val staged by Composer.staged.collectAsState()
+    val importing by Composer.importing.collectAsState()
+    val sharedText by Composer.sharedText.collectAsState()
     var showChats by remember { mutableStateOf(false) }
 
     // Rozmowy naleza do konta, nie do instalacji. Wczytujemy je, gdy wiadomo kto
@@ -329,6 +385,17 @@ private fun CyphrApp(
                 is ChatEngine.Event.Message -> if (event.uid == user?.id) toast = event.text
                 // Saldo tylko dla konta, ktore wciaz jest zalogowane.
                 is ChatEngine.Event.Account -> if (event.user.id == user?.id) user = event.user
+            }
+        }
+    }
+    // Za duzy plik, zly typ, limit zalacznikow — krotko na dole ekranu.
+    LaunchedEffect(Unit) { Composer.problems.collect { toast = it } }
+    // „Udostepnij → CYPHR” przy otwartej aplikacji: prosto do czatu, gdzie czeka zalacznik.
+    LaunchedEffect(Unit) {
+        Composer.arrivals.collect {
+            if (user != null && route in setOf(Route.Main, Route.Settings, Route.Terminal)) {
+                route = Route.Main
+                tab = Tab.Chat
             }
         }
     }
@@ -804,14 +871,25 @@ private fun CyphrApp(
                                     chatId = active.id,
                                     onOpenChats = { showChats = true },
                                     onPickAgent = { tab = Tab.Agents },
-                                    onSend = { text ->
+                                    staged = staged,
+                                    importing = importing,
+                                    onAttach = { uris -> Composer.add(context, uris) },
+                                    onPaste = { Composer.pasteImage(context) },
+                                    onRemoveAttachment = { Composer.remove(context, it) },
+                                    images = images,
+                                    drawing = active.id in drawingChats,
+                                    onNote = { toast = it },
+                                    sharedText = sharedText,
+                                    onSharedTextUsed = { Composer.consumeText() },
+                                    onSend = { text, _ ->
                                         val model = selectedAgent
                                         val uid = user?.id
                                         if (model == null) { toast = "Najpierw wybierz agenta."; return@ChatTab }
                                         if (uid == null) return@ChatTab
                                         // Odpowiedz trafia do rozmowy, w ktorej padlo pytanie —
                                         // nawet gdy przelaczysz rozmowe albo wyjdziesz z aplikacji.
-                                        ChatEngine.send(uid, active.id, model, text)
+                                        // Zalaczniki opuszczaja pole dopiero, gdy wiadomosc naprawde poszla.
+                                        if (ChatEngine.send(uid, active.id, model, text, Composer.staged.value)) Composer.take()
                                         // O gotowej odpowiedzi w tle mowi powiadomienie — pytamy o nie raz.
                                         scope.launch { NotificationPermission.askOnce(context) }
                                     },

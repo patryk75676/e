@@ -34,6 +34,9 @@ object ChatEngine {
     /** Tyle najdluzej czeka zgoda na polecenie, gdy nikt nie wraca do aplikacji. */
     private const val APPROVAL_TIMEOUT_MS = 10 * 60 * 1000L
 
+    /** Odmowy serwera obrazow, ktore maja wlasny komunikat dla uzytkownika. */
+    private val IMAGE_ERRORS_SHOWN = setOf("image_limit", "image_refused", "image_busy")
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Jeden watek dysku — kolejne wersje rozmowy trafiaja na dysk w kolejnosci. */
@@ -51,12 +54,25 @@ object ChatEngine {
     private val _busy = MutableStateFlow<Set<String>>(emptySet())
     val busy: StateFlow<Set<String>> = _busy
 
+    /** Rozmowy, w ktorych wlasnie powstaje obraz. */
+    private val _drawing = MutableStateFlow<Set<String>>(emptySet())
+    val drawing: StateFlow<Set<String>> = _drawing
+
     /** Rzeczywiste zuzycie ostatniej wymiany: wejscie do wyjscia. */
     private val _lastTokens = MutableStateFlow<Pair<Int, Int>?>(null)
     val lastTokens: StateFlow<Pair<Int, Int>?> = _lastTokens
 
+    /** Dzienny limit obrazow konta na ekranie. Null — serwer nie tworzy obrazow albo jeszcze nie wiadomo. */
+    private val _images = MutableStateFlow<ImageQuota?>(null)
+    val images: StateFlow<ImageQuota?> = _images
+
     /** Polecenie, o ktore prosi model w rozmowie [chat], czekajace na zgode uzytkownika. */
-    class Approval(val chat: String, val command: String, internal val answer: CompletableDeferred<Boolean>)
+    class Approval(
+        val chatId: String,
+        val chat: String,
+        val command: String,
+        internal val answer: CompletableDeferred<Boolean>,
+    )
 
     private val _approval = MutableStateFlow<Approval?>(null)
     val approval: StateFlow<Approval?> = _approval
@@ -85,11 +101,17 @@ object ChatEngine {
 
     private var loading: Loading? = null
 
+    /** Dokad otworzyc aplikacje, gdy rozmowy konta jeszcze sie wczytuja. */
+    private var landing: Landing? = null
+
     /** Odpowiedzi w toku: rozmowa -> konto, ktore pytalo, i praca. */
     private val jobs = HashMap<String, Pair<Long, Job>>()
 
     fun init(context: Context) {
-        if (!::app.isInitialized) app = context.applicationContext
+        if (!::app.isInitialized) {
+            app = context.applicationContext
+            scope.launch(disk) { Attachments.clearStaged(app) }
+        }
     }
 
     /**
@@ -109,23 +131,77 @@ object ChatEngine {
         _chats.value = listOf(blank)
         _activeId.value = blank.id
         _lastTokens.value = null
+        _images.value = null
         val mine = Loading(userId)
         loading = mine
         scope.launch {
-            val list = withContext(disk) { Chats.loadAll(app, userId) }
+            val list = withContext(disk) {
+                Chats.loadAll(app, userId).also { loaded ->
+                    // Pliki, do ktorych nie prowadzi juz zadna wiadomosc (np. po przycieciu rozmowy).
+                    try { Attachments.collect(app, userId, loaded) } catch (_: Exception) {}
+                }
+            }
             // W miedzyczasie zazadano innego konta — to wczytanie jest juz nieaktualne.
             if (loading !== mine) return@launch
             loading = null
             owner = userId
             _chats.value = list.ifEmpty { listOf(Chat()) }
             _activeId.value = _chats.value.first().id
+            landing?.let { apply(it) }
+            landing = null
             // Zmiany z czasu wczytywania, np. odpowiedz, ktora wlasnie doszla.
             mine.early.forEach { (id, block) -> update(userId, id, block) }
+            refreshImages(userId)
+        }
+    }
+
+    /** Po powrocie do aplikacji: limit obrazow mogl sie odnowic, gdy aplikacja czekala w tle. */
+    fun refreshImages() {
+        owner?.let { if (loading == null) refreshImages(it) }
+    }
+
+    /** Sprawdza w tle, czy serwer tworzy obrazy i ile zostalo na dzis. */
+    fun refreshImages(uid: Long) {
+        val session = Api.token() ?: return
+        scope.launch {
+            val quota = try { Api.imageQuota(auth = session) } catch (_: Exception) { return@launch }
+            if (uid == owner) _images.value = quota
         }
     }
 
     fun select(id: String) {
         if (_chats.value.any { it.id == id }) _activeId.value = id
+    }
+
+    /**
+     * Po powrocie do aplikacji: konkretna rozmowa albo nowa, pusta. Gdy rozmowy konta
+     * jeszcze sie wczytuja, wybor czeka na nie.
+     */
+    fun land(target: Landing?) {
+        if (target == null) return
+        if (owner != null && loading == null) apply(target) else landing = target
+    }
+
+    private fun apply(target: Landing) {
+        when (target) {
+            is Landing.At -> select(target.chatId)
+            Landing.Fresh -> fresh()
+        }
+    }
+
+    /**
+     * Nowa, pusta rozmowa na wierzchu. Na dysk trafia dopiero z pierwsza wiadomoscia —
+     * inaczej lista zapelnialaby sie pustymi rozmowami. Pusta juz jest — wracamy do niej.
+     */
+    private fun fresh() {
+        val list = _chats.value
+        list.firstOrNull { it.messages.isEmpty() && it.id !in _busy.value }?.let {
+            _activeId.value = it.id
+            return
+        }
+        val blank = Chat()
+        _chats.value = listOf(blank) + list
+        _activeId.value = blank.id
     }
 
     private fun save(uid: Long, chat: Chat) {
@@ -156,12 +232,7 @@ object ChatEngine {
 
     fun newChat(uid: Long) {
         if (uid != owner) return
-        // Pusta rozmowa nie ma sensu mnozyc — jesli biezaca jest pusta, zostajemy w niej.
-        if (_chats.value.firstOrNull { it.id == _activeId.value }?.messages?.isEmpty() == true) return
-        val fresh = Chat()
-        _chats.value = listOf(fresh) + _chats.value
-        _activeId.value = fresh.id
-        save(uid, fresh)
+        fresh()
     }
 
     /** Nowa nazwa nie przesuwa rozmowy na gore listy — to nie jest nowa wiadomosc. */
@@ -176,21 +247,28 @@ object ChatEngine {
         if (uid != owner) return
         // Odpowiedz do usunietej rozmowy nie ma gdzie trafic, a liczylaby sie z salda.
         jobs[id]?.second?.cancel()
-        scope.launch(disk) { Chats.delete(app, uid, id) }
+        val gone = _chats.value.firstOrNull { it.id == id }
+        scope.launch(disk) {
+            Chats.delete(app, uid, id)
+            gone?.let { c -> Attachments.delete(app, c.messages.flatMap { it.attachments }) }
+        }
         // Zawsze zostaje przynajmniej jedna rozmowa, zeby ekran czatu mial co pokazac.
         _chats.value = _chats.value.filterNot { it.id == id }.ifEmpty { listOf(Chat()) }
         if (_activeId.value == id) _activeId.value = _chats.value.first().id
     }
 
     /**
-     * Usuwa wiadomosc. Nie w trakcie odpowiedzi — ta zapisuje cala historie rozmowy
-     * i usunieta wiadomosc by wrocila. Zwraca, czy wiadomosc zniknela.
+     * Usuwa wiadomosc razem z jej zalacznikami. Nie w trakcie odpowiedzi — ta zapisuje
+     * cala historie rozmowy i usunieta wiadomosc by wrocila. Zwraca, czy wiadomosc zniknela.
      */
     fun deleteMessage(uid: Long, chatId: String, index: Int): Boolean {
         if (uid != owner || chatId in _busy.value) return false
         val chat = _chats.value.firstOrNull { it.id == chatId } ?: return false
         if (index !in chat.messages.indices) return false
+        val files = chat.messages[index].attachments
         update(uid, chatId) { it.withoutMessage(index) }
+        // Pliki dopiero po zapisie rozmowy bez tej wiadomosci — ten sam watek dysku, po kolei.
+        if (files.isNotEmpty()) scope.launch(disk) { Attachments.delete(app, files) }
         return true
     }
 
@@ -212,34 +290,42 @@ object ChatEngine {
     }
 
     /** Zgoda na polecenie: true, false albo null, gdy nikt nie odpowiedzial na czas. */
-    private suspend fun ask(chat: String, name: String, command: String): Boolean? = approvals.withLock {
-        val answer = CompletableDeferred<Boolean>()
-        _approval.value = Approval(chat, command, answer)
-        if (!visible) Notifications.approvalNeeded(app, name)
-        try {
-            withTimeoutOrNull(APPROVAL_TIMEOUT_MS) { answer.await() }
-        } finally {
-            _approval.value = null
-            Notifications.cancelApproval(app)
+    private suspend fun ask(chatId: String, chat: String, name: String, command: String): Boolean? =
+        approvals.withLock {
+            val answer = CompletableDeferred<Boolean>()
+            _approval.value = Approval(chatId, chat, command, answer)
+            if (!visible) Notifications.approvalNeeded(app, name)
+            try {
+                withTimeoutOrNull(APPROVAL_TIMEOUT_MS) { answer.await() }
+            } finally {
+                _approval.value = null
+                Notifications.cancelApproval(app)
+            }
         }
-    }
+
+    /** Czy blad serwera moze wynikac z obrazow w zapytaniu — wtedy probujemy raz bez nich. */
+    private fun imageRefusal(e: Exception): Boolean =
+        e is ApiError && e.status in setOf(400, 413, 415, 422, 500, 502)
 
     /**
      * Wysyla wiadomosc i dopisuje odpowiedz do rozmowy, w ktorej padlo pytanie —
      * nawet gdy w trakcie przelaczysz rozmowe, wyjdziesz z aplikacji albo ja zablokujesz.
+     * [attachments] to zalaczniki z pola wpisywania; od tej chwili naleza do wiadomosci.
      */
-    fun send(uid: Long, chatId: String, model: String, text: String) {
-        if (uid != owner || chatId in _busy.value) return
+    fun send(uid: Long, chatId: String, model: String, text: String, attachments: List<Attachment> = emptyList()): Boolean {
+        if (uid != owner || chatId in _busy.value) return false
         // Sesja z chwili wyslania: po przelaczeniu konta odpowiedz nadal liczy sie
         // z salda konta, ktore zadalo pytanie, a nie tego, ktore jest teraz na ekranie.
-        val session = Api.token() ?: return
-        val chat = _chats.value.firstOrNull { it.id == chatId } ?: return
-        val sent = chat.messages + ChatMessage(text, true)
+        val session = Api.token() ?: return false
+        val chat = _chats.value.firstOrNull { it.id == chatId } ?: return false
+        val committed = if (attachments.isEmpty()) emptyList() else Attachments.commit(app, uid, attachments)
+        val sent = chat.messages + ChatMessage(text, true, committed)
         val label = chat.copy(messages = sent).label
         update(uid, chatId) { it.copy(messages = sent) }
         _busy.value = _busy.value + chatId
         val name = Persona.nameOf(model)
         ChatService.start(app, name)
+        val cachedQuota = if (uid == owner) _images.value else null
 
         // Leniwy start: praca jest na liscie, zanim zacznie sie wykonywac.
         val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -251,9 +337,34 @@ object ChatEngine {
                     val folded = mem
                     update(uid, chatId) { it.copy(memory = folded) }
                 }
-                val tools = if (Prefs.agentTerminal) AgentTools.instructions(AgentTools.target(app)) else null
+                // Wyczerpany limit mogl sie juz odnowic (nowy dzien) — wtedy pytamy serwer,
+                // zamiast mowic modelowi, ze obrazow dzis nie bedzie.
+                var quota = cachedQuota
+                if (quota != null && quota.left <= 0) {
+                    quota = try { Api.imageQuota(auth = session) } catch (e: CancellationException) { throw e } catch (_: Exception) { quota }
+                    if (uid == owner) _images.value = quota
+                }
+                val tools = listOfNotNull(
+                    if (Prefs.agentTerminal) AgentTools.instructions(AgentTools.target(app)) else null,
+                    quota?.let { ImageTools.instructions(it.left, it.limit) },
+                ).joinToString("\n\n").ifBlank { null }
+
+                // Obrazy na wejsciu. Gdy serwer ich nie przyjmie (np. stara wersja z malym
+                // limitem zapytania), model dostaje sam tekst z opisem, a uzytkownik — wyjasnienie.
+                var withImages = true
+                var imagesDropped = false
+                suspend fun talk(history: List<ChatMessage>): Reply = try {
+                    Api.chat(model, history, mem, tools, auth = session, images = withImages)
+                } catch (e: Exception) {
+                    val hadImages = withImages && history.any { m -> m.attachments.any { it.seenAsImage } }
+                    if (e is CancellationException || !hadImages || !imageRefusal(e)) throw e
+                    withImages = false
+                    imagesDropped = true
+                    Api.chat(model, history, mem, tools, auth = session, images = false)
+                }
+
                 var history = sent
-                var reply = Api.chat(model, history, mem, tools, auth = session)
+                var reply = talk(history)
                 var round = 0
 
                 // Model moze poprosic o polecenie. Kazde przechodzi przez zgode uzytkownika,
@@ -262,14 +373,14 @@ object ChatEngine {
                     val cmd = AgentTools.requestedCommand(reply.text) ?: break
                     // Tura modelu zostaje w historii razem z poleceniem — uzytkownik widzi,
                     // co idzie do terminala, a model wie, o co sam poprosil.
-                    val spoken = AgentTools.withoutCall(reply.text)
+                    val spoken = ImageTools.withoutCall(AgentTools.withoutCall(reply.text))
                     history = history + ChatMessage(
                         listOf(spoken, "$ $cmd").filter { it.isNotBlank() }.joinToString("\n\n"),
                         false,
                     )
                     val asked = history
                     update(uid, chatId) { it.copy(messages = asked) }
-                    val result = when (ask(label, name, cmd)) {
+                    val result = when (ask(chatId, label, name, cmd)) {
                         true -> AgentTools.execute(app, cmd)
                         false -> "Użytkownik odmówił wykonania tego polecenia."
                         null -> "Użytkownik nie odpowiedział na prośbę o zgodę — polecenia nie wykonano."
@@ -277,12 +388,14 @@ object ChatEngine {
                     history = history + ChatMessage("Wynik polecenia `$cmd`:\n$result", true)
                     val answered = history
                     update(uid, chatId) { it.copy(messages = answered) }
-                    reply = Api.chat(model, history, mem, tools, auth = session)
+                    reply = talk(history)
                     if (uid == owner) _lastTokens.value = reply.inTokens to reply.outTokens
                     round++
                 }
 
-                var shown = AgentTools.withoutCall(reply.text).ifBlank { reply.text }
+                val drawing = if (quota != null) ImageTools.requested(reply.text) else null
+                var shown = AgentTools.withoutCall(reply.text).let { if (drawing != null) ImageTools.withoutCall(it) else it }
+                if (drawing == null) shown = shown.ifBlank { reply.text }
                 // Limit wyczerpany, a model wciaz prosi o kolejne polecenie.
                 if (Prefs.agentTerminal && round >= AgentTools.MAX_ROUNDS &&
                     AgentTools.requestedCommand(reply.text) != null
@@ -290,12 +403,53 @@ object ChatEngine {
                     shown += "\n\n(Przerwano po ${AgentTools.MAX_ROUNDS} poleceniach. " +
                         "Napisz „kontynuuj”, żeby pracował dalej.)"
                 }
+                if (imagesDropped) {
+                    shown = "_Serwer nie przyjął obrazu, więc model widział tylko tekst._\n\n$shown"
+                }
                 // Cala historia z tej odpowiedzi, a nie dopisek do biezacej postaci: nawet gdy
                 // ktoras zmiana po drodze przepadla, rozmowa konczy sie kompletna.
-                val final = history + ChatMessage(shown, false)
-                update(uid, chatId) { it.copy(messages = final) }
+                var final = history + ChatMessage(shown, false)
+                if (drawing == null || shown.isNotBlank()) {
+                    val done = final
+                    update(uid, chatId) { it.copy(messages = done) }
+                }
                 if (uid == owner) _lastTokens.value = reply.inTokens to reply.outTokens
-                if (!visible) Notifications.replyReady(app, name)
+
+                // Model poprosil o obraz: tekst juz widac, obraz dochodzi pod nim.
+                if (drawing != null) {
+                    _drawing.value = _drawing.value + chatId
+                    val last = try {
+                        val image = Api.generateImage(drawing.prompt, drawing.aspect, auth = session)
+                        if (uid == owner) _images.value = image.quota
+                        val att = withContext(disk) {
+                            Attachments.saveGenerated(app, uid, image.bytes, image.mime, drawing.prompt)
+                        }
+                        ChatMessage(shown, false, listOf(att))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        val why = when {
+                            e is ApiError && e.code in IMAGE_ERRORS_SHOWN -> e.message
+                            e is ApiError && e.status == 404 -> "Serwer nie tworzy jeszcze obrazów."
+                            else -> "Nie udało się stworzyć obrazu. Spróbuj ponownie."
+                        }
+                        if (e is ApiError && e.code == "image_limit" && uid == owner) {
+                            _images.value = _images.value?.let { it.copy(used = it.limit, left = 0) }
+                        }
+                        ChatMessage(listOf(shown, "_${why}_").filter { it.isNotBlank() }.joinToString("\n\n"), false)
+                    } finally {
+                        _drawing.value = _drawing.value - chatId
+                    }
+                    final = history + last
+                    val done = final
+                    update(uid, chatId) { it.copy(messages = done) }
+                }
+
+                if (!visible) {
+                    Notifications.replyReady(app, name)
+                    // Po powrocie aplikacja otworzy te rozmowe, a nie nowa.
+                    Prefs.setUnseenChat(chatId)
+                }
                 // Saldo po kazdej odpowiedzi — o ile to konto wciaz jest zalogowane.
                 try {
                     val fresh = Api.me(auth = session)
@@ -313,7 +467,10 @@ object ChatEngine {
                     e.message ?: "Coś poszło nie tak. Spróbuj ponownie."
                 }
                 _events.tryEmit(Event.Message(uid, message))
-                if (!visible) Notifications.failed(app, message)
+                if (!visible) {
+                    Notifications.failed(app, message)
+                    Prefs.setUnseenChat(chatId)
+                }
             } finally {
                 jobs.remove(chatId)
                 _busy.value = _busy.value - chatId
@@ -321,5 +478,36 @@ object ChatEngine {
         }
         jobs[chatId] = uid to job
         job.start()
+        return true
+    }
+}
+
+/** Dokad otworzyc aplikacje po powrocie. */
+sealed interface Landing {
+    /** Nowa, pusta rozmowa — po dluzszej przerwie. */
+    object Fresh : Landing
+    /** Konkretna rozmowa: ostatnio ogladana, z odpowiedzia z tla albo z prosba o zgode. */
+    data class At(val chatId: String) : Landing
+
+    companion object {
+        /**
+         * Czysta logika wyboru. Kolejnosc: prosba modelu o zgode, odpowiedz, ktora przyszla
+         * w tle, dluga przerwa (nowa rozmowa), a w pozostalych przypadkach ostatnio ogladana.
+         * Czas „z przyszlosci” (cofniety zegar) nie liczy sie jako przerwa.
+         */
+        fun decide(
+            now: Long,
+            lastSeen: Long?,
+            lastChat: String?,
+            unseen: String?,
+            pending: String?,
+            afterSeconds: Int,
+        ): Landing? = when {
+            pending != null -> At(pending)
+            unseen != null -> At(unseen)
+            lastSeen != null && afterSeconds > 0 && now - lastSeen >= afterSeconds * 1000L -> Fresh
+            lastChat != null -> At(lastChat)
+            else -> null
+        }
     }
 }

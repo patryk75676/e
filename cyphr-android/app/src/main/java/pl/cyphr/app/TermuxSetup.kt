@@ -63,6 +63,7 @@ fun TermuxSetup() {
         null -> "Sprawdzam…"
         Termux.State.Ready -> "Połączony"
         Termux.State.NotInstalled -> "Nie zainstalowany"
+        Termux.State.NoCommandApi -> if (Termux.isPlayBuild(status?.version)) "Wersja z Play" else "Nieobsługiwany"
         Termux.State.TooOld -> "Za stara wersja"
         Termux.State.NoPermission -> "Brak zgody"
         Termux.State.ExternalAppsBlocked -> "Blokuje polecenia"
@@ -130,8 +131,21 @@ fun TermuxSetup() {
 
         Termux.State.NotInstalled -> {
             Lead(
-                "Termux to osobna aplikacja. Musi pochodzić z F-Droid albo GitHuba — stara wersja " +
-                    "z Google Play nie odsyła wyników poleceń.",
+                "Termux to osobna aplikacja. Musi pochodzić z F-Droid albo GitHuba — wersja " +
+                    "z Google Play nie przyjmuje poleceń od innych aplikacji.",
+            )
+            Spacer(Modifier.height(12.dp))
+            GhostButton("Pobierz Termux z F-Droid") { context.startActivity(Termux.storeIntent()) }
+        }
+
+        Termux.State.NoCommandApi -> {
+            Lead(
+                (if (Termux.isPlayBuild(status?.version)) "To Termux z Google Play — osobna wersja, która " else "Ta wersja Termuksa ") +
+                    "nie przyjmuje poleceń od innych aplikacji. Nie ma w niej zgody na sterowanie z zewnątrz, " +
+                    "więc nie da się jej włączyć w ustawieniach.\n\n" +
+                    "Do współpracy z CYPHR potrzebny jest Termux z F-Droid. Najpierw odinstaluj obecny — Android " +
+                    "nie podmieni aplikacji podpisanej innym kluczem, a pliki w Termuksie przepadną, więc przenieś " +
+                    "wcześniej, co ważne. Do tego czasu polecenia modelu idą do powłoki Androida.",
             )
             Spacer(Modifier.height(12.dp))
             GhostButton("Pobierz Termux z F-Droid") { context.startActivity(Termux.storeIntent()) }
@@ -149,9 +163,12 @@ fun TermuxSetup() {
 
         Termux.State.NoPermission -> {
             if (deniedForGood) {
+                // Nazwa dokladnie taka, jak w ustawieniach tego telefonu — nadaje ja Termux, nie CYPHR.
+                val label = remember { Termux.permissionLabel(context) } ?: "Uruchamianie poleceń w środowisku Termux"
                 Lead(
-                    "Zgodę odrzucono na stałe, więc system nie pokaże już okna. Włącz ją ręcznie: " +
-                        "Uprawnienia → Dodatkowe uprawnienia → Uruchamianie poleceń w środowisku Termux.",
+                    "Zgodę odrzucono na stałe, więc system nie pokaże już okna. Włącz ją ręcznie: przycisk " +
+                        "niżej → Uprawnienia → „$label” (bywa w „Dodatkowe uprawnienia” albo „Niedozwolone”) " +
+                        "→ Zezwalaj. Potem wróć i dotknij „Sprawdź połączenie”.",
                 )
                 Spacer(Modifier.height(10.dp))
                 GhostButton("Otwórz ustawienia CYPHR") { context.startActivity(Termux.ownSettingsIntent(context)) }
@@ -175,7 +192,7 @@ fun TermuxSetup() {
                 "Termux nie odpowiedział. Zwykle pomaga:\n" +
                     "1. Otwórz Termux i poczekaj, aż skończy pierwsze uruchomienie.\n" +
                     "2. Wyłącz dla niego optymalizację baterii — Android usypia go w tle.\n" +
-                    "3. Wklej polecenie poniżej, jeśli jeszcze tego nie zrobiłeś.",
+                    "3. Wklej polecenie poniżej, jeśli jeszcze nie zostało wklejone.",
             )
             OpenTermux()
             Spacer(Modifier.height(8.dp))

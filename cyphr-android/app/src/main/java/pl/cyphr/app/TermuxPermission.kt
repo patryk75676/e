@@ -73,6 +73,8 @@ object TermuxPermission {
      */
     suspend fun ensure(context: Context): Boolean {
         if (!Termux.isInstalled(context)) return false
+        // Termux z Google Play tej zgody nie ma wcale — system nie pokazalby okna, tylko odmowe.
+        if (!Termux.acceptsCommands(context)) return false
         if (Termux.hasPermission(context)) return true
         val granted = asker.ask(context)
         // Zapamietany stan „brak zgody” jest juz nieaktualny.

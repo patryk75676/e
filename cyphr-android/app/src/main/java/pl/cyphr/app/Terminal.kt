@@ -135,8 +135,13 @@ fun TerminalTab() {
     }
 
     /** Brak zgody na Termuxa po pytaniu systemu — mowimy, co dalej, zamiast milczec. */
-    fun noTermuxPermission() =
-        push("Bez zgody na sterowanie Termuksem polecenie nie pójdzie. Zezwól, gdy Android zapyta, albo w Ustawienia → Terminal.")
+    fun noTermuxPermission() = push(
+        if (!Termux.acceptsCommands(context)) {
+            Termux.NO_COMMAND_API + " Wpisz 'termux' po instrukcję."
+        } else {
+            "Bez zgody na sterowanie Termuksem polecenie nie pójdzie. Zezwól, gdy Android zapyta, albo w Ustawienia → Terminal."
+        },
+    )
 
     fun executeTermux(command: String) {
         job = scope.launch {
@@ -233,7 +238,16 @@ fun TerminalTab() {
             }
             command == "termux" -> {
                 push(
-                    if (Termux.isInstalled(context))
+                    if (Termux.isInstalled(context) && !Termux.acceptsCommands(context))
+                        "Ten Termux jest z Google Play. To osobna wersja, która nie przyjmuje poleceń od innych " +
+                            "aplikacji — nie ma w niej zgody na sterowanie z zewnątrz, więc nie da się jej włączyć.\n\n" +
+                            "Co zrobić:\n" +
+                            "1. Odinstaluj obecnego Termuksa (jego pliki przepadną — przenieś wcześniej, co ważne).\n" +
+                            "2. Zainstaluj Termux z F-Droid: ${Termux.PLAY_URL}\n" +
+                            "3. Otwórz go, poczekaj na koniec instalacji i wklej:\n" +
+                            "   ${Termux.SETUP_COMMAND}\n" +
+                            "4. Wróć tutaj — o zgodę CYPHR zapyta sam przy pierwszym poleceniu."
+                    else if (Termux.isInstalled(context))
                         "Termux jest zainstalowany. Dokładny stan i naprawę krok po kroku masz w " +
                             "Ustawienia → Terminal.\n\n" +
                             "Najczęstsze przyczyny, gdy polecenia nie przechodzą:\n" +
@@ -243,11 +257,11 @@ fun TerminalTab() {
                             "   po odmowie na stałe włączysz ją w Ustawienia → Terminal.\n" +
                             "3. Termux nigdy nie był otwierany — otwórz go raz i poczekaj na koniec instalacji.\n" +
                             "4. Android usypia Termuksa — wyłącz mu optymalizację baterii.\n" +
-                            "5. Wersja z Google Play jest za stara — potrzebna z F-Droid (0.109 lub nowsza)."
+                            "5. Termux z Google Play nie przyjmuje poleceń od innych aplikacji — potrzebny z F-Droid."
                     else
                         "Termux nie jest zainstalowany.\n\n" +
                             "Pobierz go z F-Droid: ${Termux.PLAY_URL}\n" +
-                            "Stara wersja z Google Play nie odsyła wyników — musi być z F-Droid albo GitHuba.\n\n" +
+                            "Wersja z Google Play nie przyjmuje poleceń od innych aplikacji — musi być z F-Droid albo GitHuba.\n\n" +
                             "Po instalacji otwórz Termux, poczekaj na koniec instalacji i wklej:\n" +
                             "  ${Termux.SETUP_COMMAND}\n\n" +
                             "Potem wróć tutaj i przełącz tryb na Termux.",

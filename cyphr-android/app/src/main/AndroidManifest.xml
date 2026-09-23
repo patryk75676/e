@@ -37,7 +37,37 @@
             </intent-filter>
             <!-- Nie ma tu linku cyphr://google — przyjmowal token logowania od dowolnej
                  strony. Logowanie Google idzie tylko natywnym wyborem konta. -->
+
+            <!-- „Udostepnij → CYPHR”: zrzut ekranu, zdjecie, PDF albo tekst trafia do pola
+                 wpisywania. Nic nie jest wysylane bez uzytkownika. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
+
+        <!-- Udostepnianie obrazu z rozmowy innej aplikacji: tylko wskazany plik, tylko odczyt. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".ChatService"

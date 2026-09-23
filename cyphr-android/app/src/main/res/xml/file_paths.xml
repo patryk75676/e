@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pliki, ktore CYPHR moze udostepnic innej aplikacji: zalaczniki i obrazy z rozmow.
+     Udostepnienie zawsze na jedno konkretne wskazanie uzytkownika („Udostepnij”). -->
+<paths>
+    <files-path name="att" path="att/" />
+</paths>

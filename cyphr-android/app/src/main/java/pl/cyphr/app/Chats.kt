@@ -88,7 +88,13 @@ object Chats {
             title = root.optString("title"),
             messages = (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
-                ChatMessage(o.optString("text"), o.optBoolean("user"))
+                val att = o.optJSONArray("att")
+                ChatMessage(
+                    o.optString("text"),
+                    o.optBoolean("user"),
+                    att?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let(Attachment::fromJson) } }
+                        .orEmpty(),
+                )
             },
             memory = Memory(root.optString("summary"), root.optInt("folded", 0)),
             updatedAt = root.optLong("updatedAt", 0L),
@@ -111,8 +117,10 @@ object Chats {
             // ktorych nie obejmuje.
             val dropped = (chat.messages.size - MAX_MESSAGES).coerceAtLeast(0)
             val arr = JSONArray()
-            chat.messages.takeLast(MAX_MESSAGES).forEach {
-                arr.put(JSONObject().put("text", it.text).put("user", it.fromUser))
+            chat.messages.takeLast(MAX_MESSAGES).forEach { m ->
+                val o = JSONObject().put("text", m.text).put("user", m.fromUser)
+                if (m.attachments.isNotEmpty()) o.put("att", JSONArray(m.attachments.map { it.toJson() }))
+                arr.put(o)
             }
             val root = JSONObject()
                 .put("id", chat.id)

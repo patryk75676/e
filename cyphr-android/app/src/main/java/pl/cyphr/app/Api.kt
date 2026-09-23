@@ -82,7 +82,12 @@ fun mergeAgents(remote: List<Agent>): List<Agent> {
 data class Pack(val id: String, val name: String, val amountUsd: Double)
 /** Model do wyboru. [price] przychodzi z serwera, nazwa i opis — z katalogu. */
 data class Agent(val id: String, val name: String, val description: String, val price: String? = null)
-data class ChatMessage(val text: String, val fromUser: Boolean)
+/** Wiadomosc rozmowy. [attachments] — zdjecia, pliki albo obraz stworzony przez model. */
+data class ChatMessage(
+    val text: String,
+    val fromUser: Boolean,
+    val attachments: List<Attachment> = emptyList(),
+)
 data class Shop(val packages: List<Pack>, val testLeftUsd: Double)
 data class Usage(val balanceUsd: Double, val spentUsd: Double, val tokens: Long)
 
@@ -95,6 +100,18 @@ data class Reply(val text: String, val inTokens: Int, val outTokens: Int)
  */
 fun estimateTokens(text: String): Int =
     if (text.isBlank()) 0 else kotlin.math.ceil(text.length / 3.5).toInt()
+
+/** Tyle mniej wiecej kosztuje modela jeden obraz na wejsciu (zdjecie albo strona PDF-a). */
+const val IMAGE_TOKENS = 900
+
+/** Szacunek dla calej wiadomosci: tekst, tresc plikow i obrazy. */
+fun messageTokens(m: ChatMessage): Int = estimateTokens(m.text) + m.attachments.sumOf { a ->
+    when (a.kind) {
+        Attachment.Kind.Text -> estimateTokens(a.text)
+        Attachment.Kind.Image, Attachment.Kind.Pdf -> IMAGE_TOKENS * a.files.size.coerceAtLeast(1)
+        Attachment.Kind.Generated -> estimateTokens(a.prompt) + 10
+    }
+}
 
 /** Powyzej tylu tokenow swiezej rozmowy zwijamy jej starsza czesc w notatke. */
 const val FOLD_ABOVE = 3_000
@@ -118,7 +135,7 @@ fun shouldFold(messages: List<ChatMessage>, memory: Memory): Boolean {
     val fresh = freshOf(messages, memory)
     if (fresh.size <= KEEP_VERBATIM) return false
     val older = fresh.dropLast(KEEP_VERBATIM)
-    return older.sumOf { estimateTokens(it.text) } > FOLD_ABOVE
+    return older.sumOf { messageTokens(it) } > FOLD_ABOVE
 }
 data class Plan(
     val id: String,
@@ -143,8 +160,10 @@ object Api {
 
     private val json = "application/json; charset=utf-8".toMediaType()
     private var token: String? = null
+    private lateinit var app: Context
 
     fun load(ctx: Context) {
+        app = ctx.applicationContext
         token = SecureStore.get(KEY_TOKEN)
     }
 
@@ -412,6 +431,8 @@ object Api {
         memory: Memory = Memory(),
         toolInstructions: String? = null,
         auth: String? = token,
+        /** Czy wysylac obrazy — false po odmowie serwera, wtedy ida same opisy. */
+        images: Boolean = true,
     ): Reply {
         val arr = org.json.JSONArray()
         val name = Persona.nameOf(model)
@@ -430,9 +451,19 @@ object Api {
                 ),
             )
         }
-        freshOf(messages, memory).forEach { m ->
-            arr.put(JSONObject().put("role", if (m.fromUser) "user" else "assistant").put("content", m.text))
+        val fresh = freshOf(messages, memory)
+        val withImages = if (images) imageMessages(fresh) else emptySet()
+        val build = {
+            fresh.forEachIndexed { i, m ->
+                arr.put(
+                    JSONObject()
+                        .put("role", if (m.fromUser) "user" else "assistant")
+                        .put("content", contentOf(m, i in withImages)),
+                )
+            }
         }
+        // Zdjecia czytamy z dysku poza watkiem ekranu; sam tekst jest juz w pamieci.
+        if (withImages.isEmpty()) build() else withContext(Dispatchers.IO) { build() }
         val body = JSONObject().put("model", model).put("messages", arr).put("max_tokens", 2048).put("temperature", 0.7)
         val r = call("/v1/chat/completions", "POST", body, auth)
         val choice = r.optJSONArray("choices")?.optJSONObject(0)
@@ -457,6 +488,71 @@ object Api {
         )
     }
 
+    /** Najwyzej tyle ostatnich wiadomosci z obrazami idzie z samymi obrazami. */
+    private const val IMAGE_MESSAGES = 3
+
+    /** Najwyzej tyle obrazow w jednym zapytaniu — reszta jako opis. */
+    private const val MAX_IMAGES = 8
+
+    /**
+     * Ktore wiadomosci (indeksy w [fresh]) ida z obrazami. Starsze tylko z opisem — kazdy
+     * obraz wysylany jest przy kazdym pytaniu od nowa i liczy sie jako tokeny.
+     */
+    internal fun imageMessages(fresh: List<ChatMessage>): Set<Int> {
+        val out = HashSet<Int>()
+        var images = 0
+        for (i in fresh.indices.reversed()) {
+            val m = fresh[i]
+            if (!m.fromUser) continue
+            val n = m.attachments.filter { it.seenAsImage }.sumOf { it.files.size }
+            if (n == 0) continue
+            if (out.size >= IMAGE_MESSAGES || images + n > MAX_IMAGES) break
+            out += i
+            images += n
+        }
+        return out
+    }
+
+    /**
+     * Tresc wiadomosci dla modelu. Pliki tekstowe ida jako tekst, zdjecia i strony PDF-a jako
+     * obrazy (format „image_url” z adresem data:), a obraz stworzony przez model jako opis.
+     */
+    internal fun contentOf(m: ChatMessage, withImages: Boolean): Any {
+        val text = buildString {
+            append(m.text)
+            for (a in m.attachments) {
+                when {
+                    a.kind == Attachment.Kind.Text -> {
+                        if (isNotEmpty()) append("\n\n")
+                        append("Plik „").append(a.name).append("”")
+                        if (a.truncated) append(" (obcięty — to tylko początek)")
+                        append(":\n```\n").append(a.text).append("\n```")
+                    }
+                    a.kind == Attachment.Kind.Pdf && withImages -> {
+                        if (isNotEmpty()) append("\n\n")
+                        append("PDF „").append(a.name).append("” — stron: ").append(a.pages)
+                        if (a.pages > a.files.size) append(", poniżej pierwsze ").append(a.files.size)
+                        append(".")
+                    }
+                    !withImages || a.kind == Attachment.Kind.Generated -> {
+                        if (isNotEmpty()) append("\n\n")
+                        append("[").append(Attachments.describe(a)).append("]")
+                    }
+                }
+            }
+        }
+        if (!withImages || !m.fromUser || m.attachments.none { it.seenAsImage }) return text
+        val parts = org.json.JSONArray()
+        parts.put(JSONObject().put("type", "text").put("text", text.ifBlank { "Co jest na obrazie?" }))
+        for (a in m.attachments.filter { it.seenAsImage }) {
+            for (f in a.files) {
+                val url = Attachments.dataUrl(app, f, if (a.kind == Attachment.Kind.Pdf) "image/jpeg" else a.mime) ?: continue
+                parts.put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", url)))
+            }
+        }
+        return parts
+    }
+
     /**
      * Zwija starsza czesc rozmowy w notatke i zwraca nowa pamiec. Kosztuje jedno
      * dodatkowe zapytanie, ale zwraca sie po kilku kolejnych wiadomosciach, bo
@@ -468,8 +564,12 @@ object Api {
         val toFold = fresh.dropLast(KEEP_VERBATIM)
         if (toFold.isEmpty()) return memory
 
-        val transcript = toFold.joinToString("\n") {
-            (if (it.fromUser) "Użytkownik: " else "Asystent: ") + it.text
+        val transcript = toFold.joinToString("\n") { m ->
+            (if (m.fromUser) "Użytkownik: " else "Asystent: ") + m.text +
+                m.attachments.joinToString("") { a ->
+                    " [" + Attachments.describe(a) + "]" +
+                        (if (a.kind == Attachment.Kind.Text) " " + a.text.take(2000) else "")
+                }
         }
         val instruction = buildString {
             append("Zbierz z poniższego fragmentu rozmowy wyłącznie to, co przyda się dalej:\n")
@@ -512,5 +612,43 @@ object Api {
     /** Uniewaznia na serwerze konkretny token, nie ruszajac biezacej sesji. */
     suspend fun revoke(sessionToken: String) {
         try { call("/logout", "POST", auth = sessionToken) } catch (_: Exception) {}
+    }
+
+    /**
+     * Dzienny limit obrazow na koncie. Null, gdy serwer nie umie tworzyc obrazow
+     * (modul obrazy.js nie jest wgrany) — wtedy aplikacja nie proponuje obrazow.
+     */
+    suspend fun imageQuota(auth: String? = token): ImageQuota? = try {
+        quotaOf(call("/v1/images/quota", auth = auth))
+    } catch (e: ApiError) {
+        if (e.status == 404) null else throw e
+    }
+
+    private fun quotaOf(o: JSONObject) = ImageQuota(
+        limit = o.optInt("limit"),
+        used = o.optInt("used"),
+        left = o.optInt("left"),
+    )
+
+    /** Obraz stworzony przez serwer CYPHR razem z nowym stanem limitu. */
+    class Image(val bytes: ByteArray, val mime: String, val quota: ImageQuota)
+
+    /** Tworzy obraz. [aspect]: "1:1", "16:9" albo "9:16". Limit sprawdza serwer. */
+    suspend fun generateImage(prompt: String, aspect: String, auth: String? = token): Image {
+        val r = call(
+            "/v1/images/generations",
+            "POST",
+            JSONObject().put("prompt", prompt).put("aspect", aspect),
+            auth,
+        )
+        val first = r.optJSONArray("images")?.optJSONObject(0)
+            ?: throw ApiError("Serwer nie oddał obrazu. Spróbuj ponownie.", "image_failed")
+        val bytes = try {
+            android.util.Base64.decode(first.optString("b64"), android.util.Base64.DEFAULT)
+        } catch (e: IllegalArgumentException) {
+            throw ApiError("Serwer oddał uszkodzony obraz. Spróbuj ponownie.", "image_failed")
+        }
+        if (bytes.isEmpty()) throw ApiError("Serwer nie oddał obrazu. Spróbuj ponownie.", "image_failed")
+        return Image(bytes, first.optString("mime").ifBlank { "image/png" }, quotaOf(r))
     }
 }

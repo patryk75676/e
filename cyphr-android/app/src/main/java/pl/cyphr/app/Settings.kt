@@ -82,6 +82,13 @@ object Prefs {
     private val _confirmBuy = mutableStateOf<Boolean>(true)
     val confirmBuy: Boolean get() = _confirmBuy.value
 
+    /**
+     * Po jakiej przerwie aplikacja otwiera sie na nowej, pustej rozmowie (0 — nigdy).
+     * Domyslnie godzina: krotka przerwa wraca do tej samej rozmowy.
+     */
+    private val _newChatAfterSeconds = mutableStateOf(3600)
+    val newChatAfterSeconds: Int get() = _newChatAfterSeconds.value
+
     /** Po ilu sekundach od ostatniego uzycia aplikacja znowu prosi o odcisk palca. Domyslnie 24 h. */
     private val _lockAfterSeconds = mutableStateOf<Int>(DAY_SECONDS)
     val lockAfterSeconds: Int get() = _lockAfterSeconds.value
@@ -101,6 +108,7 @@ object Prefs {
         _secureScreen.value = sp.getBoolean("secure_screen_all", false)
         _confirmBuy.value = sp.getBoolean("confirm_buy", true)
         _lockAfterSeconds.value = sp.getInt("lock_after", DAY_SECONDS)
+        _newChatAfterSeconds.value = sp.getInt("new_chat_after", 3600)
     }
 
     /**
@@ -139,6 +147,19 @@ object Prefs {
     fun setSecureScreen(value: Boolean) { _secureScreen.value = value; edit { putBoolean("secure_screen_all", value) } }
     fun setConfirmBuy(value: Boolean) { _confirmBuy.value = value; edit { putBoolean("confirm_buy", value) } }
     fun setLockAfter(seconds: Int) { _lockAfterSeconds.value = seconds; edit { putInt("lock_after", seconds) } }
+    fun setNewChatAfter(seconds: Int) { _newChatAfterSeconds.value = seconds; edit { putInt("new_chat_after", seconds) } }
+
+    private val sp get() = app.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /** Kiedy uzytkownik ostatnio wyszedl z aplikacji — do wyboru rozmowy po powrocie. */
+    val lastSeen: Long? get() = sp.getLong("last_seen", 0L).takeIf { it > 0 }
+    /** Rozmowa, ktora byla na ekranie przy wyjsciu. */
+    val lastChat: String? get() = sp.getString("last_chat", null)
+    /** Rozmowa z odpowiedzia, ktora przyszla, gdy aplikacja byla w tle. */
+    val unseenChat: String? get() = sp.getString("unseen_chat", null)
+
+    fun setLeft(now: Long, chatId: String) = edit { putLong("last_seen", now).putString("last_chat", chatId) }
+    fun setUnseenChat(chatId: String?) = edit { if (chatId == null) remove("unseen_chat") else putString("unseen_chat", chatId) }
 
     fun setSystemPrompt(value: String) {
         _systemPrompt.value = value.trim().ifBlank { DEFAULT_PROMPT }
@@ -191,6 +212,8 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
                 "Model bierze je pod uwagę w każdej rozmowie. Długie rozmowy są same streszczane, " +
                     "żeby każda kolejna wiadomość nie kosztowała coraz więcej.",
             )
+            Spacer(Modifier.height(16.dp))
+            NewChatPicker()
         }
 
         Group("Bezpieczeństwo") {
@@ -292,28 +315,58 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
  */
 @Composable
 private fun LockAfterPicker() {
-    val options = listOf(
-        60 to "1 min",
-        900 to "15 min",
-        3600 to "1 godz.",
-        DAY_SECONDS to "24 godz.",
-        3 * DAY_SECONDS to "3 dni",
+    ChoiceChips(
+        title = "Pyta ponownie po",
+        options = listOf(
+            60 to "1 min",
+            900 to "15 min",
+            3600 to "1 godz.",
+            DAY_SECONDS to "24 godz.",
+            3 * DAY_SECONDS to "3 dni",
+        ),
+        selected = Prefs.lockAfterSeconds,
+        onPick = { Prefs.setLockAfter(it) },
+        note = "Liczy się od ostatniego użycia aplikacji — także po jej zamknięciu. Nowe logowanie " +
+            "i wejście na inne konto potwierdzasz odciskiem zawsze, niezależnie od tego ustawienia.",
     )
-    Text("Pyta ponownie po", color = Mist, fontSize = 13.sp)
+}
+
+/** Po jakiej przerwie aplikacja otwiera sie na nowej rozmowie. */
+@Composable
+private fun NewChatPicker() {
+    ChoiceChips(
+        title = "Nowa rozmowa po przerwie",
+        options = listOf(
+            0 to "Nigdy",
+            1800 to "30 min",
+            3600 to "1 godz.",
+            DAY_SECONDS to "24 godz.",
+        ),
+        selected = Prefs.newChatAfterSeconds,
+        onPick = { Prefs.setNewChatAfter(it) },
+        note = "Po takiej przerwie CYPHR otwiera się na pustej rozmowie, a poprzednie czekają na liście. " +
+            "Po krótszej wracasz do ostatniej rozmowy. Odpowiedź, która przyszła w tle, otwiera się zawsze.",
+    )
+}
+
+/** Rzad przyciskow z jednym wybranym — plynnie zmienia kolory przy wyborze. */
+@Composable
+private fun ChoiceChips(title: String, options: List<Pair<Int, String>>, selected: Int, onPick: (Int) -> Unit, note: String) {
+    Text(title, color = Mist, fontSize = 13.sp)
     Spacer(Modifier.height(8.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEach { (seconds, label) ->
-            val on = Prefs.lockAfterSeconds == seconds
-            val bg by androidx.compose.animation.animateColorAsState(if (on) Paper else Ink, motionSpec(220), label = "lockBg")
-            val edge by androidx.compose.animation.animateColorAsState(if (on) Paper else Line, motionSpec(220), label = "lockEdge")
-            val fg by androidx.compose.animation.animateColorAsState(if (on) Ink else Mist, motionSpec(220), label = "lockFg")
+        options.forEach { (value, label) ->
+            val on = selected == value
+            val bg by androidx.compose.animation.animateColorAsState(if (on) Paper else Ink, motionSpec(220), label = "chipBg")
+            val edge by androidx.compose.animation.animateColorAsState(if (on) Paper else Line, motionSpec(220), label = "chipEdge")
+            val fg by androidx.compose.animation.animateColorAsState(if (on) Ink else Mist, motionSpec(220), label = "chipFg")
             Box(
                 Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(50))
                     .background(bg)
                     .border(1.5.dp, edge, RoundedCornerShape(50))
-                    .clickable { Prefs.setLockAfter(seconds) }
+                    .clickable { onPick(value) }
                     .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -322,15 +375,13 @@ private fun LockAfterPicker() {
                     color = fg,
                     fontSize = 12.sp,
                     fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
                 )
             }
         }
     }
     Spacer(Modifier.height(8.dp))
-    Lead(
-        "Liczy się od ostatniego użycia aplikacji — także po jej zamknięciu. Nowe logowanie " +
-            "i wejście na inne konto potwierdzasz odciskiem zawsze, niezależnie od tego ustawienia.",
-    )
+    Lead(note)
 }
 
 @Composable
