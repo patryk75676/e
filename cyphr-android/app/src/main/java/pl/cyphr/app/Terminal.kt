@@ -61,7 +61,7 @@ fun TerminalTab() {
 
     // Biezace polecenie, zeby dalo sie je przerwac. Proces lokalny zabijamy,
     // a na Termux tylko przestajemy czekac — tam polecenie zyje we wlasnym procesie.
-    val process = remember { java.util.concurrent.atomic.AtomicReference<Process?>(null) }
+    val process = remember { java.util.concurrent.atomic.AtomicReference<Shell.Running?>(null) }
     var job by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     fun push(text: String) {
@@ -84,7 +84,7 @@ fun TerminalTab() {
         onDispose {
             ssh.disconnect()
             // Wyjscie z terminala nie zostawia w tle polecenia, ktore sie nie konczy.
-            process.getAndSet(null)?.destroyForcibly()
+            process.getAndSet(null)?.kill()
             job?.cancel()
         }
     }
@@ -112,14 +112,11 @@ fun TerminalTab() {
             running = true
             try {
                 withContext(Dispatchers.IO) {
-                    val p = ProcessBuilder("/system/bin/sh", "-c", command)
-                        .directory(cwd)
-                        .redirectErrorStream(true)
-                        .start()
-                    process.set(p)
-                    // Terminal nie ma wejscia dla polecenia — zamkniete od razu sprawia,
-                    // ze `cat` bez argumentow konczy sie, zamiast czekac w nieskonczonosc.
-                    try { p.outputStream.close() } catch (_: Exception) {}
+                    // Shell.start zamyka wejscie (cat bez argumentow sie konczy) i pozwala
+                    // przerwac cale drzewo procesow, a nie tylko sama powloke.
+                    val shell = Shell.start(command, cwd, pidDir = context.cacheDir)
+                    process.set(shell)
+                    val p = shell.process
                     // Linie trafiaja na ekran w trakcie dzialania komendy, ale paczkami —
                     // przy wyniku na tysiace linii oddzielne przerysowanie na kazda
                     // zatkaloby interfejs.
@@ -139,7 +136,8 @@ fun TerminalTab() {
                     }
                     flush()
                     val code = p.waitFor()
-                    if (code != 0) withContext(Dispatchers.Main) { push("[wyjście $code]") }
+                    shell.cleanup()
+                    if (code != 0 && process.get() != null) withContext(Dispatchers.Main) { push("[wyjście $code]") }
                 }
             } catch (e: Exception) {
                 push("Błąd: ${e.message}")
@@ -166,9 +164,9 @@ fun TerminalTab() {
 
     /** Przerywa biezace polecenie. */
     fun stop() {
-        val p = process.getAndSet(null)
-        if (p != null) {
-            p.destroy()
+        val shell = process.getAndSet(null)
+        if (shell != null) {
+            shell.kill()
             push("^C przerwano")
         } else if (mode == Mode.Termux) {
             job?.cancel()

@@ -72,7 +72,7 @@ Użytkownik potwierdza każde polecenie i może odmówić.
         } else {
             try {
                 val home = File(context.filesDir, "home").apply { mkdirs() }
-                val r = Shell.run(command, home, COMMAND_TIMEOUT_SECONDS, maxChars = 8_000)
+                val r = Shell.run(command, home, COMMAND_TIMEOUT_SECONDS, maxChars = 8_000, pidDir = context.cacheDir)
                 buildString {
                     append(r.output.ifBlank { "(brak wyniku)" })
                     if (r.timedOut) append("\n(przerwano po $COMMAND_TIMEOUT_SECONDS s — polecenie się nie kończyło)")
