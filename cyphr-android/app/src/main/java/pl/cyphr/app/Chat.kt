@@ -18,8 +18,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -248,11 +257,65 @@ private fun Bubble(message: ChatMessage, typing: Boolean = false, onTyped: () ->
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            Text(
-                full.take(shown) + if (caret) "▌" else "",
-                color = if (message.fromUser) Ink else Paper,
-                fontSize = 15.sp,
-            )
+            // Przytrzymanie zaznacza tekst i pozwala go skopiowac — wczesniej odpowiedzi
+            // modelu nie dalo sie nigdzie przeniesc.
+            SelectionContainer {
+                if (!message.fromUser && !caret) {
+                    // Po dopisaniu sie calej odpowiedzi rysujemy jej Markdown.
+                    ChatMarkdown(full, Paper)
+                } else {
+                    Text(
+                        full.take(shown) + if (caret) "▌" else "",
+                        color = if (message.fromUser) Ink else Paper,
+                        fontSize = 15.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Odpowiedz modelu z Markdownem: pogrubienia, kursywa, `kod` w linii, naglowki,
+ * punktory i bloki kodu przewijane w poziomie, zeby dlugie linie sie nie lamaly.
+ */
+@Composable
+fun ChatMarkdown(text: String, color: Color) {
+    val blocks = remember(text) { Markdown.blocks(text) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        blocks.forEach { block ->
+            when (block) {
+                is Markdown.Block.Text -> Text(styled(block.spans), color = color, fontSize = 15.sp)
+                is Markdown.Block.Code -> Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Raise)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        block.code,
+                        color = color,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        softWrap = false,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun styled(spans: List<Markdown.Span>): AnnotatedString = buildAnnotatedString {
+    spans.forEach { span ->
+        when (span.style) {
+            Markdown.Style.Plain -> append(span.text)
+            Markdown.Style.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(span.text) }
+            Markdown.Style.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(span.text) }
+            Markdown.Style.Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Raise)) {
+                append(span.text)
+            }
         }
     }
 }

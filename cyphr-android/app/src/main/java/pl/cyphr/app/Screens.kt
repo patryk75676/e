@@ -384,7 +384,7 @@ private fun AgentStats(usage: Usage?, lastTokens: Pair<Int, Int>?) {
             StatCell("Wydane / 30 dni", usage?.let { usd(it.spentUsd) } ?: "—")
         }
         Spacer(Modifier.height(14.dp))
-        Divider(color = Line, thickness = 1.dp)
+        HorizontalDivider(color = Line, thickness = 1.dp)
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             StatCell("Ostatnie wejście", lastTokens?.first?.toString() ?: "—")
@@ -416,7 +416,9 @@ fun AgentsTab(
 
     // Ulubione na gorze, reszta alfabetycznie. Katalog dostawcy potrafi miec setki
     // pozycji, wiec bez tego wybor jest przewijaniem na oslep.
-    val shown = remember(agents, query) {
+    // Ulubione sa w kluczu — inaczej oznaczony model zostawal na swoim miejscu do kolejnego odswiezenia.
+    val favourites = Prefs.favourites
+    val shown = remember(agents, query, favourites) {
         val q = query.trim().lowercase()
         agents
             .filter { q.isBlank() || it.name.lowercase().contains(q) || it.id.lowercase().contains(q) }
@@ -539,7 +541,7 @@ private fun AgentRow(
 
 // ---------- Sklep ----------
 @Composable
-fun ShopTab(shop: Shop?, holder: String, onPick: (Pack) -> Unit) {
+fun ShopTab(shop: Shop?, error: String?, holder: String, onRetry: () -> Unit, onPick: (Pack) -> Unit) {
     var preview by remember(shop) { mutableStateOf(shop?.packages?.getOrNull(1)) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Pad),
@@ -555,11 +557,16 @@ fun ShopTab(shop: Shop?, holder: String, onPick: (Pack) -> Unit) {
         Spacer(Modifier.height(8.dp))
         Lead(
             when {
+                error != null -> "Nie udało się wczytać pakietów. $error"
                 shop == null -> "Wczytuję pakiety."
                 shop.testLeftUsd > 0 -> "Tryb testowy. Nic nie płacisz. Zostało ${usd(shop.testLeftUsd)} testowych środków."
                 else -> "Tryb testowy. Limit testowych środków jest wyczerpany, więc zakupy są tylko symulowane."
             },
         )
+        if (error != null) {
+            Spacer(Modifier.height(14.dp))
+            GhostButton("Spróbuj ponownie", onClick = onRetry)
+        }
         Spacer(Modifier.height(18.dp))
         shop?.packages?.forEach { pack ->
             val chosen = pack.id == preview?.id
@@ -751,11 +758,16 @@ fun AccountTab(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text(
-                usd(plan?.paidUsd ?: 0.0),
-                color = Paper, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold,
-            )
-            Text("łącznie doładowań, bez testowych", color = Mist, fontSize = 13.sp)
+            if (plan == null) {
+                // Serwer nie liczy jeszcze planu (brak /profile) — nie udajemy zera doladowan.
+                Text("Plan pojawi się, gdy serwer zacznie go liczyć.", color = Mist, fontSize = 14.sp)
+            } else {
+                Text(
+                    usd(plan.paidUsd),
+                    color = Paper, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold,
+                )
+                Text("łącznie doładowań, bez testowych", color = Mist, fontSize = 13.sp)
+            }
             if (plan?.nextName != null) {
                 Spacer(Modifier.height(16.dp))
                 val ratio = if (plan.nextAtUsd > 0) (plan.paidUsd / plan.nextAtUsd).toFloat().coerceIn(0f, 1f) else 0f

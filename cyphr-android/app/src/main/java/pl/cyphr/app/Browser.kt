@@ -35,6 +35,19 @@ import org.json.JSONObject
 
 private data class QuickLink(val title: String, val url: String)
 
+/**
+ * WebView zyje dluzej niz zakladka. Wczesniej przelaczenie na czat (np. zeby zapytac
+ * o strone) niszczylo przegladarke i po powrocie trzeba bylo otwierac wszystko od nowa.
+ */
+class BrowserHolder {
+    var view: WebView? = null
+
+    fun destroy() {
+        view?.let { (it.parent as? android.view.ViewGroup)?.removeView(it); it.destroy() }
+        view = null
+    }
+}
+
 private val quickLinks = listOf(
     QuickLink("DuckDuckGo", "https://duckduckgo.com"),
     QuickLink("Wikipedia", "https://pl.wikipedia.org"),
@@ -52,22 +65,28 @@ private val quickLinks = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserTab(
+    holder: BrowserHolder,
     agent: String?,
     asking: Boolean,
     answer: String?,
     onCloseAnswer: () -> Unit,
     onAsk: (pageText: String, url: String, question: String) -> Unit,
 ) {
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    var url by remember { mutableStateOf("") }
+    // Stan paska odtwarzamy z zachowanego WebView — po powrocie na zakladke strona jest tam, gdzie byla.
+    val kept = holder.view
+    var webView by remember { mutableStateOf(kept) }
+    var url by remember { mutableStateOf(kept?.url.orEmpty()) }
     var draft by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(0f) }
     var loading by remember { mutableStateOf(false) }
-    var canBack by remember { mutableStateOf(false) }
-    var canForward by remember { mutableStateOf(false) }
-    var secure by remember { mutableStateOf(true) }
-    var started by remember { mutableStateOf(false) }
+    var canBack by remember { mutableStateOf(kept?.canGoBack() == true) }
+    var canForward by remember { mutableStateOf(kept?.canGoForward() == true) }
+    var secure by remember { mutableStateOf(kept?.url?.startsWith("https") ?: true) }
+    var started by remember { mutableStateOf(!kept?.url.isNullOrBlank()) }
+
+    // Systemowe „wstecz” cofa strone, a dopiero bez historii wychodzi z przegladarki.
+    androidx.activity.compose.BackHandler(enabled = canBack && !editing) { webView?.goBack() }
     var askOpen by remember { mutableStateOf(false) }
     var question by remember { mutableStateOf("") }
     var pendingAsk by remember { mutableStateOf<Triple<String, String, String>?>(null) }
@@ -132,7 +151,7 @@ fun BrowserTab(
         Box(Modifier.weight(1f)) {
             AndroidView(
                 factory = { context ->
-                    WebView(context).apply {
+                    val view = holder.view ?: WebView(context).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.allowFileAccess = false
@@ -144,6 +163,11 @@ fun BrowserTab(
                         settings.setSupportZoom(true)
                         settings.builtInZoomControls = true
                         settings.displayZoomControls = false
+                    }.also { holder.view = it }
+                    // Zachowany widok moze wciaz wisiec pod starym ekranem.
+                    (view.parent as? android.view.ViewGroup)?.removeView(view)
+                    // Obslugi podpinamy za kazdym razem na nowo — pisza do stanu tej kompozycji.
+                    view.apply {
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
                                 view: WebView?,
@@ -250,8 +274,10 @@ fun BrowserTab(
             title = "Wysłać stronę do modelu?",
             what = host(address),
             detail = "Do agenta pójdzie ${text.length} znaków treści strony oraz pytanie: $q",
+            // Wysylka strony pyta zawsze, wiec „Zawsze” niczego by nie zapamietalo — nie udajemy.
+            allowAlways = false,
             onAllowOnce = { onAsk(text, address, q); pendingAsk = null },
-            onAllowAlways = { onAsk(text, address, q); pendingAsk = null },
+            onAllowAlways = {},
             onDeny = { pendingAsk = null },
         )
     }
@@ -271,7 +297,9 @@ fun BrowserTab(
                     SectionTitle("Odpowiedź")
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(answer, color = Paper, fontSize = 15.sp)
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    ChatMarkdown(answer, Paper)
+                }
                 Spacer(Modifier.height(20.dp))
                 GhostButton("Zamknij", onClick = onCloseAnswer)
             }

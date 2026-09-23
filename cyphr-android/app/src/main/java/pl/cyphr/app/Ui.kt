@@ -286,13 +286,16 @@ fun Divider(text: String) = Row(verticalAlignment = Alignment.CenterVertically) 
     Box(Modifier.weight(1f).height(1.dp).background(Line))
 }
 
-/** Pytanie o zgodę na działanie: jednorazowe, na stałe albo odmowa. */
+/**
+ * Pytanie o zgodę na działanie: jednorazowe, na stałe albo odmowa. „Zawsze” jest
+ * domyślnie ukryte — pokazuje je tylko miejsce, które naprawdę umie to zapamiętać.
+ */
 @Composable
 fun PermissionDialog(
     title: String,
     what: String,
     detail: String?,
-    allowAlways: Boolean = true,
+    allowAlways: Boolean = false,
     onAllowOnce: () -> Unit,
     onAllowAlways: () -> Unit,
     onDeny: () -> Unit,

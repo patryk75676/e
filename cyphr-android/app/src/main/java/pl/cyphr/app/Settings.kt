@@ -70,7 +70,10 @@ object Prefs {
     private val _askCommands = mutableStateOf<Boolean>(true)
     val askCommands: Boolean get() = _askCommands.value
 
-    /** Czy model moze prosic o wykonanie polecen w terminalu. Domyslnie nie. */
+    /**
+     * Czy model moze prosic o wykonanie polecen w terminalu. Domyslnie tak — kazde
+     * takie polecenie i tak czeka na osobna zgode uzytkownika i da sie odmowic.
+     */
     private val _agentTerminal = mutableStateOf(true)
     val agentTerminal: Boolean get() = _agentTerminal.value
 

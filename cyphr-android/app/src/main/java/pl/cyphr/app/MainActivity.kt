@@ -326,9 +326,19 @@ private fun CyphrApp(
         cont.invokeOnCancellation { pendingCommand = null }
     }
 
-    // Przegladarka
+    // Przegladarka. Osobna dla kazdego konta, zeby historia jednego nie przechodzila
+    // na drugie; stara jest niszczona przy zmianie konta.
+    val browser = remember(user?.id) { BrowserHolder() }
+    DisposableEffect(browser) { onDispose { browser.destroy() } }
     var answer by remember { mutableStateOf<String?>(null) }
     var asking by remember { mutableStateOf(false) }
+
+    // Sklep: blad pokazujemy na miejscu, zamiast wiecznego „Wczytuje pakiety”.
+    var shopError by remember { mutableStateOf<String?>(null) }
+    // /profile istnieje dopiero z paczka cyphr-app.zip. Po 404 nie pytamy go przy
+    // kazdym wejsciu w Konto — to tylko zjadalo limit zapytan serwera.
+    var profileMissing by remember { mutableStateOf(false) }
+    var agentsLoadedAt by remember { mutableStateOf(0L) }
 
     // Zakup
     var buying by remember { mutableStateOf<Pack?>(null) }
@@ -437,6 +447,7 @@ private fun CyphrApp(
             try { Api.agents() } catch (e2: Exception) { emptyList() }
         }
         agents = mergeAgents(remote)
+        if (remote.isNotEmpty()) agentsLoadedAt = System.currentTimeMillis()
         if (selectedAgent == null || agents.none { it.id == selectedAgent }) {
             selectedAgent = (agents.firstOrNull { it.id == DEFAULT_AGENT } ?: agents.firstOrNull())?.id
             selectedAgent?.let { Prefs.setAgent(it) }
@@ -505,17 +516,27 @@ private fun CyphrApp(
     LaunchedEffect(route, tab) {
         if (route != Route.Main) return@LaunchedEffect
         when (tab) {
-            Tab.Agents -> loadAgents()
+            // Lista modeli zmienia sie rzadko — odswiezamy co kilka minut albo przyciskiem,
+            // a nie przy kazdym dotknieciu zakladki.
+            Tab.Agents -> if (agents.isEmpty() || System.currentTimeMillis() - agentsLoadedAt > 5 * 60_000) loadAgents()
             Tab.Chat -> if (agents.isEmpty()) loadAgents()
-            Tab.Shop -> shop = try { Api.shop() } catch (e: Exception) { toast = e.message; null }
+            Tab.Shop -> {
+                shopError = null
+                shop = try { Api.shop() } catch (e: Exception) { shopError = e.message; null }
+            }
             Tab.Account -> {
                 usage = try { Api.usage() } catch (e: Exception) { null }
                 usage?.let { u -> user = user?.copy(balanceUsd = u.balanceUsd) }
-                try {
-                    val profile = Api.profile()
-                    plan = profile.plan
-                    user = profile.user
-                } catch (e: Exception) { plan = null }
+                if (!profileMissing) {
+                    try {
+                        val profile = Api.profile()
+                        plan = profile.plan
+                        user = profile.user
+                    } catch (e: Exception) {
+                        plan = null
+                        if (e is ApiError && e.status == 404) profileMissing = true
+                    }
+                }
             }
             Tab.Browser -> Unit
         }
@@ -844,9 +865,20 @@ private fun CyphrApp(
                                     tab = Tab.Chat
                                 }) { scope.launch { loadAgents() } }
 
-                                Tab.Shop -> ShopTab(shop, user?.name.orEmpty()) { pack -> buying = pack; bought = false }
+                                Tab.Shop -> ShopTab(
+                                    shop = shop,
+                                    error = shopError,
+                                    holder = user?.name.orEmpty(),
+                                    onRetry = {
+                                        scope.launch {
+                                            shopError = null
+                                            shop = try { Api.shop() } catch (e: Exception) { shopError = e.message; null }
+                                        }
+                                    },
+                                ) { pack -> buying = pack; bought = false }
 
                                 Tab.Browser -> BrowserTab(
+                                    holder = browser,
                                     agent = selectedAgent,
                                     asking = asking,
                                     answer = answer,
