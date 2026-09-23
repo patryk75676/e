@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -52,18 +53,46 @@ object Termux {
 
     enum class State { NotInstalled, NoPermission, Ready }
 
-    /** Sprawdza realnie, wykonujac polecenie — sama obecnosc paczki nic nie mowi o zgodzie. */
-    suspend fun check(context: Context): State {
-        if (!isInstalled(context)) return State.NotInstalled
-        val r = run(context, "echo CYPHR_OK")
-        return if (r.stdout.contains("CYPHR_OK")) State.Ready else State.NoPermission
+    /** Ostatni wynik sprawdzenia i jego czas — patrz [check]. */
+    @Volatile private var lastCheck: Pair<Long, State>? = null
+
+    /**
+     * Sprawdza realnie, wykonujac polecenie — sama obecnosc paczki nic nie mowi o zgodzie.
+     *
+     * Wynik jest pamietany przez [maxAgeMs], bo czat pyta o to przy kazdej wiadomosci.
+     * Termux bez zgody na polecenia z zewnatrz potrafi w ogole nie odpowiedziec —
+     * dlatego krotki limit czasu; bez niego czat wisial na zawsze.
+     */
+    suspend fun check(context: Context, maxAgeMs: Long = 60_000): State {
+        if (!isInstalled(context)) return State.NotInstalled.also { lastCheck = null }
+        lastCheck?.let { (at, state) ->
+            if (System.currentTimeMillis() - at < maxAgeMs) return state
+        }
+        val r = run(context, "echo CYPHR_OK", timeoutMs = 4_000)
+        val state = if (r.stdout.contains("CYPHR_OK")) State.Ready else State.NoPermission
+        lastCheck = System.currentTimeMillis() to state
+        return state
     }
 
     /**
-     * Uruchamia polecenie w Termuxie i czeka na wynik. Termux odsyla go przez
-     * PendingIntent, wiec na czas wywolania rejestrujemy odbiornik pod losowa akcja.
+     * Uruchamia polecenie w Termuxie i czeka na wynik najwyzej [timeoutMs].
+     * Po czasie przestajemy czekac — samo polecenie moze dalej dzialac w Termuxie,
+     * ale aplikacja nie stoi.
      */
-    suspend fun run(context: Context, command: String): Result =
+    suspend fun run(context: Context, command: String, timeoutMs: Long = 60_000): Result =
+        withTimeoutOrNull(timeoutMs) { runUnbounded(context, command) }
+            ?: Result(
+                stdout = "",
+                stderr = "Termux nie odpowiedział w ${timeoutMs / 1000} s. Jeśli polecenia w ogóle " +
+                    "nie wracają, wpisz 'termux' w terminalu — wypiszę, jak to ustawić.",
+                exitCode = -1,
+            )
+
+    /**
+     * Termux odsyla wynik przez PendingIntent, wiec na czas wywolania rejestrujemy
+     * odbiornik pod losowa akcja. Anulowanie (np. limit czasu) wyrejestrowuje go.
+     */
+    private suspend fun runUnbounded(context: Context, command: String): Result =
         suspendCancellableCoroutine { cont ->
             val replyAction = "pl.cyphr.app.TERMUX_REPLY." + System.nanoTime()
 

@@ -46,7 +46,8 @@ fun TermuxSetup() {
         testing = true
         granted = Termux.hasPermission(context)
         scope.launch {
-            state = Termux.check(context)
+            // Przycisk ma sprawdzic naprawde, a nie oddac wynik zapamietany przez czat.
+            state = Termux.check(context, maxAgeMs = 0)
             testing = false
         }
     }

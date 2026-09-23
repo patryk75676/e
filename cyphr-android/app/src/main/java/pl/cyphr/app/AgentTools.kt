@@ -55,24 +55,28 @@ Użytkownik potwierdza każde polecenie i może odmówić.
     suspend fun target(context: Context): String =
         if (Termux.check(context) == Termux.State.Ready) "Termux" else "powłoka Androida"
 
+    /** Tyle najdluzej czeka polecenie zlecone przez model, zanim je przerwiemy. */
+    const val COMMAND_TIMEOUT_SECONDS = 30L
+
     /**
      * Uruchamia polecenie i zwraca wynik obciety do rozsadnej dlugosci —
      * caly wynik wrocilby do modelu jako tokeny, za ktore placi uzytkownik.
+     * Kazde polecenie ma limit czasu: bez niego `ping` albo `top` wieszaly czat.
      */
     suspend fun execute(context: Context, command: String): String = withContext(Dispatchers.IO) {
         val raw = if (Termux.check(context) == Termux.State.Ready) {
-            val r = Termux.run(context, command)
+            val r = Termux.run(context, command, timeoutMs = COMMAND_TIMEOUT_SECONDS * 1000)
             listOf(r.stdout, r.stderr).filter { it.isNotBlank() }.joinToString("\n").ifBlank {
                 "(brak wyniku, kod ${r.exitCode})"
             }
         } else {
             try {
                 val home = File(context.filesDir, "home").apply { mkdirs() }
-                val p = ProcessBuilder("/system/bin/sh", "-c", command)
-                    .directory(home).redirectErrorStream(true).start()
-                val out = p.inputStream.bufferedReader().readText()
-                p.waitFor()
-                out.ifBlank { "(brak wyniku)" }
+                val r = Shell.run(command, home, COMMAND_TIMEOUT_SECONDS, maxChars = 8_000)
+                buildString {
+                    append(r.output.ifBlank { "(brak wyniku)" })
+                    if (r.timedOut) append("\n(przerwano po $COMMAND_TIMEOUT_SECONDS s — polecenie się nie kończyło)")
+                }
             } catch (e: Exception) {
                 "Błąd: ${e.message}"
             }

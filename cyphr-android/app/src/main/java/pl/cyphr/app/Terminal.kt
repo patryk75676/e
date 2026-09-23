@@ -27,10 +27,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val RISKY = Regex("^\\s*(sudo\\s+)?(rm|rmdir|mv|chmod|chown|dd|mkfs|kill|pkill|truncate|shred|curl|wget)\\b")
+private fun isRisky(command: String): Boolean = CommandRisk.isRisky(command)
 
-private fun isRisky(command: String): Boolean =
-    RISKY.containsMatchIn(command) || command.contains(">") || command.contains("| sh") || command.contains("|sh")
+/** Pliki wieksze niz to edytor odrzuca — caly tekst trzyma w pamieci i w polu tekstowym. */
+private const val MAX_EDIT_BYTES = 512 * 1024
+
+/** Reczne polecenie w Termuxie (np. instalacja pakietow) moze trwac dlugo. */
+private const val TERMUX_MANUAL_TIMEOUT_MS = 10 * 60 * 1000L
 
 private enum class Mode { Local, Termux, Ssh }
 
@@ -56,6 +59,11 @@ fun TerminalTab() {
     var sshState by remember { mutableStateOf("rozłączony") }
     val listState = rememberLazyListState()
 
+    // Biezace polecenie, zeby dalo sie je przerwac. Proces lokalny zabijamy,
+    // a na Termux tylko przestajemy czekac — tam polecenie zyje we wlasnym procesie.
+    val process = remember { java.util.concurrent.atomic.AtomicReference<Process?>(null) }
+    var job by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     fun push(text: String) {
         if (text.isBlank()) return
         lines = (lines + text.trimEnd().split("\n")).takeLast(600)
@@ -72,7 +80,14 @@ fun TerminalTab() {
         )
     }
 
-    DisposableEffect(Unit) { onDispose { ssh.disconnect() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            ssh.disconnect()
+            // Wyjscie z terminala nie zostawia w tle polecenia, ktore sie nie konczy.
+            process.getAndSet(null)?.destroyForcibly()
+            job?.cancel()
+        }
+    }
     LaunchedEffect(lines.size) { if (lines.isNotEmpty()) listState.animateScrollToItem(lines.size - 1) }
 
     fun connectSsh() {
@@ -93,14 +108,18 @@ fun TerminalTab() {
     LaunchedEffect(mode) { if (mode == Mode.Ssh && sshState == "rozłączony") connectSsh() }
 
     fun executeLocal(command: String) {
-        scope.launch {
+        job = scope.launch {
             running = true
             try {
                 withContext(Dispatchers.IO) {
-                    val process = ProcessBuilder("/system/bin/sh", "-c", command)
+                    val p = ProcessBuilder("/system/bin/sh", "-c", command)
                         .directory(cwd)
                         .redirectErrorStream(true)
                         .start()
+                    process.set(p)
+                    // Terminal nie ma wejscia dla polecenia — zamkniete od razu sprawia,
+                    // ze `cat` bez argumentow konczy sie, zamiast czekac w nieskonczonosc.
+                    try { p.outputStream.close() } catch (_: Exception) {}
                     // Linie trafiaja na ekran w trakcie dzialania komendy, ale paczkami —
                     // przy wyniku na tysiace linii oddzielne przerysowanie na kazda
                     // zatkaloby interfejs.
@@ -111,7 +130,7 @@ fun TerminalTab() {
                         batch.clear()
                         withContext(Dispatchers.Main) { push(chunk) }
                     }
-                    process.inputStream.bufferedReader().use { reader ->
+                    p.inputStream.bufferedReader().use { reader ->
                         while (true) {
                             val line = reader.readLine() ?: break
                             batch += line
@@ -119,27 +138,49 @@ fun TerminalTab() {
                         }
                     }
                     flush()
-                    process.waitFor()
+                    val code = p.waitFor()
+                    if (code != 0) withContext(Dispatchers.Main) { push("[wyjście $code]") }
                 }
             } catch (e: Exception) {
                 push("Błąd: ${e.message}")
+            } finally {
+                process.set(null)
+                running = false
             }
-            running = false
         }
     }
 
     fun executeTermux(command: String) {
-        scope.launch {
+        job = scope.launch {
             running = true
-            val r = Termux.run(context, command)
-            r.stdout.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
-            r.stderr.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
-            if (r.exitCode != 0) push("[wyjście ${r.exitCode}]")
-            running = false
+            try {
+                val r = Termux.run(context, command, timeoutMs = TERMUX_MANUAL_TIMEOUT_MS)
+                r.stdout.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
+                r.stderr.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
+                if (r.exitCode != 0) push("[wyjście ${r.exitCode}]")
+            } finally {
+                running = false
+            }
+        }
+    }
+
+    /** Przerywa biezace polecenie. */
+    fun stop() {
+        val p = process.getAndSet(null)
+        if (p != null) {
+            p.destroy()
+            push("^C przerwano")
+        } else if (mode == Mode.Termux) {
+            job?.cancel()
+            push("^C przestałem czekać — polecenie może dalej działać w Termuksie.")
         }
     }
 
     fun execute(command: String) {
+        if (running && mode != Mode.Ssh) {
+            push("Poprzednie polecenie jeszcze działa. Dotknij Stop, żeby je przerwać.")
+            return
+        }
         when (mode) {
             Mode.Ssh -> {
                 if (sshState != "połączony") { push("Brak połączenia. Dotknij Połącz."); return }
@@ -209,7 +250,23 @@ fun TerminalTab() {
             mode == Mode.Local && command.startsWith("edit ") -> {
                 val name = command.removePrefix("edit ").trim()
                 val file = if (name.startsWith("/")) File(name) else File(cwd, name)
-                editing = file to (if (file.isFile) file.readText() else "")
+                // Odczyt poza piaskownica albo wielkiego pliku konczyl sie wyjatkiem
+                // na glownym watku, czyli zamknieciem calej aplikacji.
+                val text = try {
+                    when {
+                        file.isDirectory -> { push("edit: $name to katalog"); return }
+                        file.isFile && file.length() > MAX_EDIT_BYTES -> {
+                            push("edit: plik ma ${file.length() / 1024} KB — edytor przyjmuje do ${MAX_EDIT_BYTES / 1024} KB.")
+                            return
+                        }
+                        file.isFile -> file.readText()
+                        else -> ""
+                    }
+                } catch (e: Exception) {
+                    push("edit: nie mogę otworzyć $name (${e.message})")
+                    return
+                }
+                editing = file to text
                 return
             }
             mode == Mode.Local && command.startsWith("cd ") -> {
@@ -253,9 +310,15 @@ fun TerminalTab() {
                 detail = "${text.length} znaków. Poprzednia zawartość zostanie nadpisana.",
                 allowAlways = false,
                 onAllowOnce = {
-                    file.writeText(text)
-                    push("Zapisano ${file.name} (${text.length} znaków).")
-                    saveAsk = false; editing = null
+                    // Zapis poza piaskownica (np. /system) rzucal wyjatek i zamykal aplikacje.
+                    try {
+                        file.writeText(text)
+                        push("Zapisano ${file.name} (${text.length} znaków).")
+                        editing = null
+                    } catch (e: Exception) {
+                        push("Nie zapisano ${file.name}: ${e.message}")
+                    }
+                    saveAsk = false
                 },
                 onAllowAlways = {},
                 onDeny = { push("Zapis odrzucony."); saveAsk = false },
@@ -339,11 +402,14 @@ fun TerminalTab() {
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(10.dp))
-            IconButton(onClick = { run(input) }, enabled = !running) {
+            // Gdy polecenie dziala, ten sam przycisk je przerywa — inaczej `ping`
+            // bez -c blokowal terminal na zawsze.
+            val canStop = running && mode != Mode.Ssh
+            IconButton(onClick = { if (canStop) stop() else run(input) }) {
                 Icon(
-                    painterResource(R.drawable.ic_send),
-                    contentDescription = "Uruchom",
-                    tint = if (running) Mist else Paper,
+                    painterResource(if (canStop) R.drawable.ic_close else R.drawable.ic_send),
+                    contentDescription = if (canStop) "Przerwij" else "Uruchom",
+                    tint = Paper,
                     modifier = Modifier.size(20.dp),
                 )
             }
