@@ -51,8 +51,17 @@ jobs:
             echo "Brak sekretu DEBUG_KEYSTORE_B64 — buduje domyslnym kluczem debugowym."
           fi
 
-      - name: Zbuduj APK (debug)
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Testy i APK (debug)
+        # Najpierw testy jednostkowe — gdy ktorys padnie, APK nie wychodzi.
+        run: ./gradlew testDebugUnitTest assembleDebug --no-daemon --stacktrace
+
+      - name: Raport testow (tylko przy bledzie)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: raport-testow
+          path: cyphr-android/app/build/reports/tests/
+          if-no-files-found: ignore
 
       - name: Odcisk klucza do Google Cloud Console
         # Krok informacyjny — nie moze wywalic builda, gdy APK juz powstal.
@@ -72,8 +81,8 @@ jobs:
           cat fingerprint.txt
 
       - name: Wyslij APK jako artefakt
-        # always(), zeby gotowa paczka wyszla nawet gdyby krok wyzej mial czkawke.
-        if: ${{ always() }}
+        # Tylko gdy testy i budowa przeszly. Krok z odciskiem wyzej nie moze juz
+        # wywalic joba, wiec nie trzeba go tu obchodzic.
         uses: actions/upload-artifact@v4
         with:
           name: cyphr-apk
