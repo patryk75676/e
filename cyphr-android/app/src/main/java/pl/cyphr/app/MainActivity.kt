@@ -227,10 +227,15 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
     val messages = active.messages
     val memory = active.memory
 
-    /** Podmienia aktywna rozmowe i zapisuje ja pod kontem zalogowanego uzytkownika. */
-    fun updateActive(block: (Chat) -> Chat) {
-        val next = block(active).copy(updatedAt = System.currentTimeMillis())
-        chats = chats.map { if (it.id == next.id) next else it }
+    /**
+     * Podmienia rozmowe o danym id i zapisuje ja pod kontem zalogowanego uzytkownika.
+     * Liczy od aktualnego stanu listy (`chats` czyta stan, nie kopie), bo ta funkcja
+     * jest wolana z korutyny kilka sekund po wyslaniu — kopia `active` z tamtej chwili
+     * nie zawierala jeszcze pytania i odpowiedz je nadpisywala.
+     */
+    fun updateChat(id: String, block: (Chat) -> Chat) {
+        val (list, next) = chats.updated(id, System.currentTimeMillis(), block) ?: return
+        chats = list
         val uid = user?.id ?: return
         scope.launch { withContext(Dispatchers.IO) { Chats.save(context, uid, next) } }
     }
@@ -616,8 +621,11 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                     onSend = { text ->
                                         val model = selectedAgent
                                         if (model == null) { toast = "Najpierw wybierz agenta."; return@ChatTab }
+                                        // Odpowiedz trafia do rozmowy, w ktorej padlo pytanie —
+                                        // nawet gdy w trakcie przelaczysz sie na inna.
+                                        val chatId = active.id
                                         val sent = messages + ChatMessage(text, true)
-                                        updateActive { it.copy(messages = sent) }
+                                        updateChat(chatId) { it.copy(messages = sent) }
                                         scope.launch {
                                             thinking = true
                                             try {
@@ -625,7 +633,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                                 var mem = memory
                                                 if (shouldFold(sent, mem)) {
                                                     mem = Api.fold(model, sent, mem)
-                                                    updateActive { it.copy(memory = mem) }
+                                                    updateChat(chatId) { it.copy(memory = mem) }
                                                 }
                                                 val tools = if (Prefs.agentTerminal) {
                                                     AgentTools.instructions(AgentTools.target(context))
@@ -650,7 +658,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                                             .joinToString("\n\n"),
                                                         false,
                                                     )
-                                                    updateActive { it.copy(messages = history) }
+                                                    updateChat(chatId) { it.copy(messages = history) }
                                                     val allowed = askCommand(cmd)
                                                     val result = if (allowed) {
                                                         AgentTools.execute(context, cmd)
@@ -661,7 +669,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                                         "Wynik polecenia `$cmd`:\n$result",
                                                         true,
                                                     )
-                                                    updateActive { it.copy(messages = history) }
+                                                    updateChat(chatId) { it.copy(messages = history) }
                                                     reply = Api.chat(model, history, mem, tools)
                                                     lastTokens = reply.inTokens to reply.outTokens
                                                     round++
@@ -675,7 +683,7 @@ private fun CyphrApp(requireFingerprint: (String, () -> Unit) -> Unit = { _, ok 
                                                     shown += "\n\n(Przerwano po ${AgentTools.MAX_ROUNDS} poleceniach. " +
                                                         "Napisz „kontynuuj”, żeby pracował dalej.)"
                                                 }
-                                                updateActive {
+                                                updateChat(chatId) {
                                                     it.copy(messages = it.messages + ChatMessage(shown, false))
                                                 }
                                                 lastTokens = reply.inTokens to reply.outTokens

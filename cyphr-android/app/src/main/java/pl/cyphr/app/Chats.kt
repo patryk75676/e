@@ -27,6 +27,21 @@ data class Chat(
 }
 
 /**
+ * Podmienia rozmowe [id], liczac od jej AKTUALNEJ postaci na tej liscie.
+ *
+ * Odpowiedz modelu przychodzi po kilku sekundach, a do tego czasu rozmowa zdazyla
+ * sie zmienic — choćby o samo pytanie. Liczenie od kopii z chwili wyslania dopisywalo
+ * odpowiedz do stanu sprzed pytania i pytanie znikalo. Zwraca nowa liste razem
+ * ze zmieniona rozmowa albo null, gdy rozmowy juz nie ma (usunieta w trakcie albo
+ * przelaczono konto) — wtedy niczego nie wskrzeszamy.
+ */
+fun List<Chat>.updated(id: String, now: Long, block: (Chat) -> Chat): Pair<List<Chat>, Chat>? {
+    val current = firstOrNull { it.id == id } ?: return null
+    val next = block(current).copy(updatedAt = now)
+    return map { if (it.id == id) next else it } to next
+}
+
+/**
  * Rozmowy leza w osobnych plikach, wiec dopisanie wiadomosci do jednej nie
  * przepisuje pozostalych. Kazde konto ma wlasny podkatalog — wylogowanie ich
  * nie kasuje, a inne konto na tym samym telefonie ich nie zobaczy.
@@ -67,6 +82,13 @@ object Chats {
         null
     }
 
+    /**
+     * Zapis idzie najpierw do pliku tymczasowego, a potem podmienia wlasciwy. Przy
+     * odpowiedzi z poleceniami kilka zapisow tej samej rozmowy leci tuz po sobie —
+     * rownolegle writeText do jednego pliku potrafilo go przemieszac, a przemieszany
+     * plik przy wczytaniu po cichu wypadal razem z cala rozmowa. Stad tez jeden zapis naraz.
+     */
+    @Synchronized
     fun save(context: Context, userId: Long, chat: Chat) {
         try {
             // Przyciecie najstarszych wiadomosci przesuwa indeksy, wiec licznik
@@ -84,11 +106,19 @@ object Chats {
                 .put("summary", chat.memory.summary)
                 .put("folded", (chat.memory.folded - dropped).coerceAtLeast(0))
                 .put("updatedAt", chat.updatedAt)
-            file(context, userId, chat.id).writeText(root.toString())
+            val target = file(context, userId, chat.id)
+            val tmp = File(target.parentFile, target.name + ".tmp")
+            tmp.writeText(root.toString())
+            if (!tmp.renameTo(target)) {
+                // Na czesci systemow plikow rename nie nadpisuje istniejacego pliku.
+                target.delete()
+                if (!tmp.renameTo(target)) tmp.delete()
+            }
         } catch (_: Exception) {
         }
     }
 
+    @Synchronized
     fun delete(context: Context, userId: Long, id: String) {
         try { file(context, userId, id).delete() } catch (_: Exception) {}
     }
