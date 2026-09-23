@@ -37,39 +37,14 @@ fun ChatListSheet(
     var confirmDelete by remember { mutableStateOf<Chat?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Raise, contentColor = Paper) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("Rozmowy", color = Paper, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
-                Text("${chats.size}", color = Mist, fontSize = 13.sp)
-            }
-
-            GhostButton("Nowa rozmowa", onClick = onNew)
-            Spacer(Modifier.height(14.dp))
-
-            if (chats.isEmpty()) {
-                Lead("Nie ma jeszcze żadnej rozmowy.", center = true)
-                Spacer(Modifier.height(20.dp))
-            } else {
-                LazyColumn(
-                    Modifier.heightIn(max = 380.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(chats, key = { it.id }) { chat ->
-                        ChatRow(
-                            chat = chat,
-                            active = chat.id == activeId,
-                            onPick = { onPick(chat.id) },
-                            onRename = { renaming = chat },
-                            onDelete = { confirmDelete = chat },
-                        )
-                    }
-                }
-            }
-        }
+        ChatListContent(
+            chats = chats,
+            activeId = activeId,
+            onPick = onPick,
+            onNew = onNew,
+            onRename = { renaming = it },
+            onDelete = { confirmDelete = it },
+        )
     }
 
     renaming?.let { chat ->
@@ -114,6 +89,51 @@ fun ChatListSheet(
     }
 }
 
+/** Zawartosc arkusza — osobno, zeby dalo sie ja narysowac i sprawdzic bez okna arkusza. */
+@Composable
+internal fun ChatListContent(
+    chats: List<Chat>,
+    activeId: String,
+    onPick: (String) -> Unit,
+    onNew: () -> Unit,
+    onRename: (Chat) -> Unit,
+    onDelete: (Chat) -> Unit,
+) {
+    Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Rozmowy", color = Paper, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+            Text("${chats.size}", color = Mist, fontSize = 13.sp)
+        }
+
+        PrimaryButton("Nowa rozmowa", onClick = onNew)
+        Spacer(Modifier.height(14.dp))
+
+        if (chats.isEmpty()) {
+            Lead("Nie ma jeszcze żadnej rozmowy.", center = true)
+            Spacer(Modifier.height(20.dp))
+        } else {
+            LazyColumn(
+                Modifier.heightIn(max = 380.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(chats, key = { it.id }) { chat ->
+                    ChatRow(
+                        chat = chat,
+                        active = chat.id == activeId,
+                        onPick = { onPick(chat.id) },
+                        onRename = { onRename(chat) },
+                        onDelete = { onDelete(chat) },
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ChatRow(
     chat: Chat,
@@ -149,20 +169,23 @@ private fun ChatRow(
             )
         }
         IconButton(onClick = onRename) {
-            Icon(painterResource(R.drawable.ic_settings), "Zmień nazwę", tint = Mist, modifier = Modifier.size(17.dp))
+            Icon(painterResource(R.drawable.ic_edit), "Zmień nazwę", tint = Mist, modifier = Modifier.size(19.dp))
         }
         IconButton(onClick = onDelete) {
-            Icon(painterResource(R.drawable.ic_close), "Usuń", tint = Mist, modifier = Modifier.size(17.dp))
+            Icon(painterResource(R.drawable.ic_delete), "Usuń", tint = Mist, modifier = Modifier.size(19.dp))
         }
     }
 }
+
+/** Cala aplikacja jest po polsku — daty tez, niezaleznie od jezyka telefonu. */
+private val PL = Locale("pl", "PL")
 
 private fun stamp(millis: Long): String {
     val now = System.currentTimeMillis()
     val day = 24 * 60 * 60 * 1000L
     return when {
-        now - millis < day -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(millis))
-        now - millis < 7 * day -> SimpleDateFormat("EEEE", Locale.getDefault()).format(Date(millis))
-        else -> SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(millis))
+        now - millis < day -> SimpleDateFormat("HH:mm", PL).format(Date(millis))
+        now - millis < 7 * day -> SimpleDateFormat("EEEE", PL).format(Date(millis))
+        else -> SimpleDateFormat("d MMM", PL).format(Date(millis))
     }
 }

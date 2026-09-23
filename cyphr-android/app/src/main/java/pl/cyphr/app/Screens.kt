@@ -1,6 +1,12 @@
 package pl.cyphr.app
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
@@ -9,8 +15,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,7 +30,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -102,7 +105,7 @@ fun AuthScreen(
     var email by remember { mutableStateOf(initialEmail) }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
-    val enter = remember { Animatable(0f) }
+    val enter = remember { Animatable(if (Prefs.animations) 0f else 1f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, motionSpec(600)) }
 
     Column(
@@ -347,11 +350,16 @@ private fun BasicCodeField(code: String, focus: FocusRequester, onChange: (Strin
             repeat(6) { i ->
                 val filled = i < code.length
                 val cursor = i == code.length
+                val edge by animateColorAsState(
+                    if (cursor) Paper else if (filled) Mist else Line,
+                    motionSpec(180),
+                    label = "codeEdge$i",
+                )
                 Box(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .border(1.5.dp, if (cursor) Paper else if (filled) Mist else Line, RoundedCornerShape(14.dp)),
+                        .border(1.5.dp, edge, RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -380,15 +388,15 @@ private fun AgentStats(usage: Usage?, lastTokens: Pair<Int, Int>?) {
         Text("ZUŻYCIE", color = Mist, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatCell("Tokeny / 30 dni", usage?.tokens?.toString() ?: "—")
+            StatCell("Tokeny / 30 dni", usage?.tokens?.let { int(it) } ?: "—")
             StatCell("Wydane / 30 dni", usage?.let { usd(it.spentUsd) } ?: "—")
         }
         Spacer(Modifier.height(14.dp))
         HorizontalDivider(color = Line, thickness = 1.dp)
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatCell("Ostatnie wejście", lastTokens?.first?.toString() ?: "—")
-            StatCell("Ostatnie wyjście", lastTokens?.second?.toString() ?: "—")
+            StatCell("Ostatnie wejście", lastTokens?.first?.let { int(it.toLong()) } ?: "—")
+            StatCell("Ostatnie wyjście", lastTokens?.second?.let { int(it.toLong()) } ?: "—")
         }
     }
 }
@@ -412,35 +420,19 @@ fun AgentsTab(
     onPick: (Agent) -> Unit,
     onRefresh: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
-
-    // Ulubione na gorze, reszta alfabetycznie. Katalog dostawcy potrafi miec setki
-    // pozycji, wiec bez tego wybor jest przewijaniem na oslep.
-    // Ulubione sa w kluczu — inaczej oznaczony model zostawal na swoim miejscu do kolejnego odswiezenia.
-    val favourites = Prefs.favourites
-    val shown = remember(agents, query, favourites) {
-        val q = query.trim().lowercase()
-        agents
-            .filter { q.isBlank() || it.name.lowercase().contains(q) || it.id.lowercase().contains(q) }
-            .sortedWith(
-                compareByDescending<Agent> { Prefs.isFavourite(it.id) }
-                    .thenBy { it.name.lowercase() },
-            )
-    }
-
-    Column(Modifier.fillMaxSize().padding(horizontal = Pad)) {
-        SectionTitle("Agenci", Modifier.padding(top = 10.dp, bottom = 16.dp))
-
-        AgentStats(usage, lastTokens)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Pad)) {
+        SectionTitle("Agenci", Modifier.padding(top = 10.dp))
+        Spacer(Modifier.height(6.dp))
+        Lead("Modele CYPHR. Wybrany odpowiada w czacie i w przeglądarce.")
         Spacer(Modifier.height(18.dp))
 
         if (agents.isEmpty()) {
             Column(
-                Modifier.fillMaxWidth().padding(top = 40.dp),
+                Modifier.fillMaxWidth().padding(vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Ghost(size = 110.dp, floating = true)
-                Spacer(Modifier.height(22.dp))
+                Ghost(size = 96.dp, floating = true)
+                Spacer(Modifier.height(20.dp))
                 Text("Brak agentów", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Paper)
                 Spacer(Modifier.height(6.dp))
                 Lead("Spróbuj odświeżyć listę.", center = true)
@@ -448,92 +440,67 @@ fun AgentsTab(
                 GhostButton("Odśwież", Modifier.width(180.dp), busy = busy, onClick = onRefresh)
             }
         } else {
-            // Wyszukiwarka ma sens dopiero przy dluzszej liscie — przy kilku pozycjach
-            // to tylko zajete miejsce.
-            if (agents.size > 6) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) {
-                        Field(query, "Szukaj wśród ${agents.size}", { query = it })
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    IconButton(onClick = onRefresh, enabled = !busy) {
-                        Icon(painterResource(R.drawable.ic_reload), "Odśwież", tint = Mist, modifier = Modifier.size(19.dp))
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-
-            if (shown.isEmpty()) {
-                Lead("Nic nie pasuje do „$query”.", center = true)
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(shown, key = { it.id }) { agent ->
-                        AgentRow(
-                            agent = agent,
-                            selected = agent.id == selected,
-                            favourite = Prefs.isFavourite(agent.id),
-                            onPick = { onPick(agent) },
-                            onFavourite = { Prefs.toggleFavourite(agent.id) },
-                        )
-                    }
-                }
+            // Kolejnosc z katalogu: domyslny model pierwszy.
+            agents.forEach { agent ->
+                AgentRow(agent = agent, selected = agent.id == selected, onPick = { onPick(agent) })
+                Spacer(Modifier.height(10.dp))
             }
         }
+
+        Spacer(Modifier.height(12.dp))
+        AgentStats(usage, lastTokens)
+        Spacer(Modifier.height(20.dp))
     }
 }
 
 @Composable
-private fun AgentRow(
-    agent: Agent,
-    selected: Boolean,
-    favourite: Boolean,
-    onPick: () -> Unit,
-    onFavourite: () -> Unit,
-) {
+private fun AgentRow(agent: Agent, selected: Boolean, onPick: () -> Unit) {
+    val border by animateColorAsState(if (selected) Paper else Line, motionSpec(220), label = "agentBorder")
+    val badge by animateColorAsState(if (selected) Paper else Raise, motionSpec(220), label = "agentBadge")
+    val ghost by animateColorAsState(if (selected) Ink else Paper, motionSpec(220), label = "agentGhost")
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .border(1.5.dp, if (selected) Paper else Line, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .border(1.5.dp, border, RoundedCornerShape(20.dp))
             .clickable { onPick() }
-            .padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 6.dp),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                agent.name,
-                color = Paper,
-                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (agent.description.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    agent.description,
-                    color = Mist,
-                    fontSize = 13.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            // Pelny identyfikator — po nim widac, ktora wersja modelu to jest.
-            Spacer(Modifier.height(3.dp))
-            Text(
-                agent.id,
-                color = Line,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Box(
+            Modifier.size(48.dp).clip(CircleShape).background(badge),
+            contentAlignment = Alignment.Center,
+        ) {
+            Ghost(size = 28.dp, tint = ghost)
         }
-        IconButton(onClick = onFavourite) {
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(agent.name, color = Paper, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            if (agent.description.isNotBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(agent.description, color = Mist, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            agent.price?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, color = Mist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        val radioBg by animateColorAsState(if (selected) Paper else Color.Transparent, motionSpec(200), label = "radioBg")
+        val check by animateFloatAsState(if (selected) 1f else 0f, motionSpring(0.5f, 600f), label = "check")
+        Box(
+            Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(radioBg)
+                .border(1.5.dp, border, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
             Icon(
-                painterResource(R.drawable.ic_plus),
-                if (favourite) "Usuń z ulubionych" else "Dodaj do ulubionych",
-                tint = if (favourite) Paper else Line,
-                modifier = Modifier.size(18.dp),
+                painterResource(R.drawable.ic_check),
+                if (selected) "Wybrany" else null,
+                tint = Ink,
+                modifier = Modifier.size(16.dp).graphicsLayer { scaleX = check; scaleY = check; alpha = check },
             )
         }
     }
@@ -570,23 +537,31 @@ fun ShopTab(shop: Shop?, error: String?, holder: String, onRetry: () -> Unit, on
         Spacer(Modifier.height(18.dp))
         shop?.packages?.forEach { pack ->
             val chosen = pack.id == preview?.id
+            val bg by animateColorAsState(if (chosen) Paper else Ink, motionSpec(260), label = "packBg")
+            val edge by animateColorAsState(if (chosen) Paper else Line, motionSpec(260), label = "packEdge")
+            val label by animateColorAsState(if (chosen) Color(0xFF555555) else Mist, motionSpec(260), label = "packLabel")
+            val amount by animateColorAsState(if (chosen) Ink else Paper, motionSpec(260), label = "packAmount")
+            val pill by animateColorAsState(if (chosen) Ink else Paper, motionSpec(260), label = "packPill")
+            val pillText by animateColorAsState(if (chosen) Paper else Ink, motionSpec(260), label = "packPillText")
+            val lift by animateFloatAsState(if (chosen) 1f else 0.98f, motionSpring(0.6f, 380f), label = "packLift")
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp)
+                    .graphicsLayer { scaleX = lift; scaleY = lift }
                     .clip(RoundedCornerShape(20.dp))
-                    .background(if (chosen) Paper else Ink)
-                    .border(1.5.dp, if (chosen) Paper else Line, RoundedCornerShape(20.dp))
+                    .background(bg)
+                    .border(1.5.dp, edge, RoundedCornerShape(20.dp))
                     .clickable { if (chosen) onPick(pack) else preview = pack }
                     .padding(20.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column {
-                    Text(pack.name, color = if (chosen) Color(0xFF555555) else Mist, fontSize = 15.sp)
+                    Text(pack.name, color = label, fontSize = 15.sp)
                     Text(
                         usd(pack.amountUsd),
-                        color = if (chosen) Ink else Paper,
+                        color = amount,
                         fontSize = 32.sp,
                         fontWeight = FontWeight.ExtraBold,
                     )
@@ -594,15 +569,21 @@ fun ShopTab(shop: Shop?, error: String?, holder: String, onRetry: () -> Unit, on
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(if (chosen) Ink else Paper)
+                        .background(pill)
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                 ) {
-                    Text(
-                        if (chosen) "Kup" else "Wybierz",
-                        color = if (chosen) Paper else Ink,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                    )
+                    AnimatedContent(
+                        targetState = chosen,
+                        transitionSpec = { fadeIn(motionSpec(200)).togetherWith(fadeOut(motionSpec(120))) },
+                        label = "packAction",
+                    ) { on ->
+                        Text(
+                            if (on) "Kup" else "Wybierz",
+                            color = pillText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                        )
+                    }
                 }
             }
         }
@@ -642,39 +623,51 @@ private fun AccountSwitcher(
                 color = Paper,
                 fontWeight = FontWeight.Bold,
             )
-            Text(if (open) "▴" else "▾", color = Mist)
+            val turn by animateFloatAsState(if (open) 180f else 0f, motionSpec(260), label = "chevron")
+            Icon(
+                painterResource(R.drawable.ic_chevron_down),
+                contentDescription = if (open) "Zwiń" else "Rozwiń",
+                tint = Mist,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+            )
         }
 
-        if (open) {
-            Spacer(Modifier.height(8.dp))
-            others.forEach { acc ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(1.5.dp, Line, RoundedCornerShape(14.dp))
-                        .clickable { open = false; onSwitch(acc) }
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            acc.name.ifBlank { acc.email },
-                            color = Paper,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(acc.email, color = Mist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        AnimatedVisibility(
+            visible = open,
+            enter = fadeIn(motionSpec(220)) + expandVertically(motionSpec(280)),
+            exit = fadeOut(motionSpec(160)) + shrinkVertically(motionSpec(240)),
+        ) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                others.forEach { acc ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.5.dp, Line, RoundedCornerShape(14.dp))
+                            .clickable { open = false; onSwitch(acc) }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                acc.name.ifBlank { acc.email },
+                                color = Paper,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(acc.email, color = Mist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
+                GhostButton("Zaloguj inne konto", onClick = onAdd)
+                Spacer(Modifier.height(8.dp))
+                Lead(
+                    "Odcisk palca odblokowuje aplikację. Konta wybierasz tutaj — " +
+                        "każde ma własne rozmowy i własne saldo.",
+                )
             }
-            GhostButton("Zaloguj inne konto", onClick = onAdd)
-            Spacer(Modifier.height(8.dp))
-            Lead(
-                "Odcisk palca odblokowuje aplikację. Konta wybierasz tutaj — " +
-                    "każde ma własne rozmowy i własne saldo.",
-            )
         }
     }
 }
@@ -771,8 +764,11 @@ fun AccountTab(
             if (plan?.nextName != null) {
                 Spacer(Modifier.height(16.dp))
                 val ratio = if (plan.nextAtUsd > 0) (plan.paidUsd / plan.nextAtUsd).toFloat().coerceIn(0f, 1f) else 0f
+                // Pasek wypelnia sie po wejsciu na ekran — widac, ile brakuje.
+                val fill = remember { Animatable(if (Prefs.animations) 0f else ratio) }
+                LaunchedEffect(ratio) { fill.animateTo(ratio, motionSpec(900)) }
                 Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(Line)) {
-                    Box(Modifier.fillMaxWidth(ratio).fillMaxHeight().background(Paper))
+                    Box(Modifier.fillMaxWidth(fill.value).fillMaxHeight().clip(RoundedCornerShape(50)).background(Paper))
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -834,7 +830,7 @@ fun BottomBar(current: Tab, onSelect: (Tab) -> Unit) {
     ) {
         Tab.values().forEach { tab ->
             val on = tab == current
-            val weight by animateFloatAsState(if (on) 1.9f else 1f, motionSpec(360), label = "navWeight")
+            val weight by animateFloatAsState(if (on) 1.9f else 1f, motionSpring(0.8f, 320f), label = "navWeight")
             val bg by animateColorAsState(if (on) Paper else Ink, motionSpec(280), label = "navBg")
             val fg by animateColorAsState(if (on) Ink else Mist, motionSpec(280), label = "navFg")
             Row(
@@ -884,7 +880,11 @@ fun TopBalance(balance: Double, bump: Int, onSettings: () -> Unit, onClick: () -
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Ghost(size = 34.dp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Ghost(size = 32.dp)
+            Spacer(Modifier.width(8.dp))
+            Text("CYPHR", color = Paper, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier

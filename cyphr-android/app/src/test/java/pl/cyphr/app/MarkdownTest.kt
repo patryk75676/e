@@ -80,4 +80,13 @@ class MarkdownTest {
     fun `pusta odpowiedz nie ma blokow`() {
         assertEquals(emptyList<Markdown.Block>(), Markdown.blocks(""))
     }
+
+    @Test
+    fun `dlugosc widoczna nie liczy znacznikow`() {
+        // Pisanie odpowiedzi odslania tyle znakow, ile widac po sformatowaniu.
+        assertEquals(4, Markdown.visibleLength(Markdown.blocks("**ab** c")))
+        assertEquals(1, Markdown.visibleLength(Markdown.blocks("```\nx\n```")))
+        assertEquals(5, Markdown.visibleLength(Markdown.blocks("# Tytuł")))
+        assertEquals(0, Markdown.visibleLength(Markdown.blocks("")))
+    }
 }

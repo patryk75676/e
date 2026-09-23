@@ -1,13 +1,31 @@
 package pl.cyphr.app
 
 import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +52,17 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/** Podpowiedz na pustym ekranie: etykieta i poczatek wiadomosci, ktory trafia do pola. */
+private class Suggestion(val label: String, val prompt: String)
+
+private val suggestions = listOf(
+    Suggestion("Wyjaśnij prosto", "Wyjaśnij mi prosto, "),
+    Suggestion("Napisz kod", "Napisz kod, który "),
+    Suggestion("Streść tekst", "Streść ten tekst:\n"),
+    Suggestion("Zaplanuj coś", "Pomóż mi zaplanować "),
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatTab(
     messages: List<ChatMessage>,
@@ -41,25 +71,25 @@ fun ChatTab(
     lastTokens: Pair<Int, Int>?,
     memory: Memory,
     chatTitle: String,
+    chatId: String,
     onSend: (String) -> Unit,
     onPickAgent: () -> Unit,
     onOpenChats: () -> Unit,
 ) {
-    var draft by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+    // TextFieldValue, a nie String: po wstawieniu podpowiedzi kursor ma stac na koncu.
+    var draft by remember { mutableStateOf(TextFieldValue("")) }
+    val input = remember { FocusRequester() }
+    // Kazda rozmowa otwiera sie na dole, bez przewijania przez cala historie.
+    val listState = remember(chatId) { LazyListState((messages.size - 1).coerceAtLeast(0)) }
 
-    // Indeks wiadomosci, ktora ma sie dopiero wypisac. -1 = nic sie nie pisze.
-    // Pisze sie wylacznie odpowiedz, ktora wlasnie doszla — historia wczytana
-    // z dysku ani powrot na zakladke nie przepisuja niczego od nowa.
-    var seen by remember { mutableStateOf(messages.size) }
-    var typeAt by remember { mutableStateOf(-1) }
-    LaunchedEffect(messages.size) {
-        if (messages.size > seen) {
-            val last = messages.lastOrNull()
-            if (last != null && !last.fromUser) typeAt = messages.lastIndex
-        }
-        seen = messages.size
-    }
+    // Odpowiedzi od tego indeksu wzwyz jeszcze sie nie wypisaly. Pisze sie wylacznie to,
+    // co doszlo po otwarciu rozmowy — historia z dysku, powrot na zakladke ani przejscie
+    // do innej rozmowy nie przepisuja niczego od nowa. Decyzja zapada juz przy pierwszym
+    // rysowaniu dymka: wczesniej zapadala klatke pozniej, gdy dymek mial juz caly tekst,
+    // i pisanie konczylo sie, zanim sie zaczelo.
+    var typed by remember(chatId) { mutableStateOf(messages.size) }
+    // Wiadomosci, ktore juz byly w rozmowie przy jej otwarciu, pojawiaja sie bez animacji.
+    val baseline = remember(chatId) { messages.size }
 
     // To, co faktycznie leci do modelu: notatka z zwinietej czesci plus swieze
     // wiadomosci. Liczone przy zmianie rozmowy, nie przy kazdym nacisnieciu klawisza.
@@ -75,88 +105,136 @@ fun ChatTab(
 
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 22.dp, top = 2.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenChats, modifier = Modifier.size(34.dp)) {
-                    Icon(
-                        painterResource(R.drawable.ic_chat),
-                        "Rozmowy",
-                        tint = Paper,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        chatTitle,
-                        color = Paper,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        agent ?: "Nie wybrano agenta",
-                        color = Mist,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            IconButton(onClick = onOpenChats, modifier = Modifier.size(42.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_chat),
+                    "Rozmowy",
+                    tint = Paper,
+                    modifier = Modifier.size(20.dp),
+                )
             }
-            TextButton(onClick = onPickAgent) { Text("Zmień", color = Mist) }
+            Spacer(Modifier.width(4.dp))
+            AnimatedContent(
+                targetState = chatTitle,
+                transitionSpec = { fadeIn(motionSpec(220)).togetherWith(fadeOut(motionSpec(140))) },
+                label = "chatTitle",
+                modifier = Modifier.weight(1f),
+            ) { title ->
+                Text(
+                    title,
+                    color = Paper,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            ModelChip(agent ?: "Wybierz model", onClick = onPickAgent)
         }
 
-        TokenBar(
-            context = contextTokens,
-            draft = estimateTokens(draft),
-            last = lastTokens,
-            folded = folded,
-        )
+        // Licznik ma sens dopiero, gdy jest co liczyc — w pustej rozmowie to tylko szum.
+        AnimatedVisibility(
+            visible = messages.isNotEmpty() || draft.text.isNotEmpty(),
+            enter = fadeIn(motionSpec(200)) + expandVertically(motionSpec(200)),
+            exit = fadeOut(motionSpec(150)) + shrinkVertically(motionSpec(150)),
+        ) {
+            TokenBar(
+                context = contextTokens,
+                draft = estimateTokens(draft.text),
+                last = lastTokens,
+                folded = folded,
+            )
+        }
 
-        if (messages.isEmpty() && !thinking) {
-            Column(
-                Modifier.weight(1f).fillMaxWidth().padding(horizontal = 22.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Ghost(size = 110.dp, floating = true)
-                Spacer(Modifier.height(20.dp))
-                Text("O co zapytasz?", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Paper)
-                Spacer(Modifier.height(6.dp))
-                Lead("Rozmowa liczy się z Twojego salda.", center = true)
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                itemsIndexed(messages) { i, message ->
-                    Bubble(
-                        message = message,
-                        typing = i == typeAt,
-                        onTyped = { if (typeAt == i) typeAt = -1 },
-                    )
+        AnimatedContent(
+            targetState = messages.isEmpty() && !thinking,
+            transitionSpec = { fadeIn(motionSpec(280)).togetherWith(fadeOut(motionSpec(160))) },
+            label = "chatBody",
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        ) { empty ->
+            if (empty) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Ghost(size = 96.dp, floating = true)
+                        Spacer(Modifier.height(18.dp))
+                        Text("O co zapytasz?", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Paper)
+                        Spacer(Modifier.height(6.dp))
+                        Lead(
+                            agent?.let { "Odpowiada $it. Rozmowa liczy się z Twojego salda." }
+                                ?: "Wybierz model, żeby zacząć.",
+                            center = true,
+                        )
+                        Spacer(Modifier.height(22.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            suggestions.forEach { s ->
+                                Text(
+                                    s.label,
+                                    color = Paper,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .border(1.5.dp, Line, RoundedCornerShape(50))
+                                        .clickable {
+                                            draft = TextFieldValue(s.prompt, TextRange(s.prompt.length))
+                                            input.requestFocus()
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                )
+                            }
+                        }
+                    }
                 }
-                if (thinking) item { TypingBubble() }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    itemsIndexed(messages) { i, message ->
+                        Bubble(
+                            message = message,
+                            typing = !message.fromUser && i >= typed,
+                            animate = i >= baseline,
+                            onTyped = { if (typed <= i) typed = i + 1 },
+                        )
+                    }
+                    if (thinking) item { TypingBubble(agent) }
+                }
             }
         }
 
+        val enabled = draft.text.isNotBlank() && !thinking
+        val send = {
+            if (enabled) {
+                onSend(draft.text.trim())
+                draft = TextFieldValue("")
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
         ) {
             TextField(
                 value = draft,
                 onValueChange = { draft = it },
                 placeholder = { Text("Napisz wiadomość", color = Mist) },
-                maxLines = 4,
-                shape = RoundedCornerShape(24.dp),
+                maxLines = 5,
+                shape = RoundedCornerShape(26.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                // Klawiatura pokazuje „Wyslij” — bez tego przycisk nic nie robil.
+                keyboardActions = KeyboardActions(onSend = { send() }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Raise, unfocusedContainerColor = Raise,
                     focusedTextColor = Paper, unfocusedTextColor = Paper,
@@ -164,30 +242,62 @@ fun ChatTab(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                 ),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(input),
             )
             Spacer(Modifier.width(10.dp))
-            val enabled = draft.isNotBlank() && !thinking
+            val sendBg by animateColorAsState(if (enabled) Paper else Raise, motionSpec(180), label = "sendBg")
+            val sendFg by animateColorAsState(if (enabled) Ink else Mist, motionSpec(180), label = "sendFg")
+            val sendScale by animateFloatAsState(if (enabled) 1f else 0.9f, motionSpring(0.45f, 520f), label = "sendScale")
             Box(
                 Modifier
-                    .size(52.dp)
+                    .size(56.dp)
+                    .graphicsLayer { scaleX = sendScale; scaleY = sendScale }
                     .clip(RoundedCornerShape(50))
-                    .background(if (enabled) Paper else Raise),
+                    .background(sendBg),
                 contentAlignment = Alignment.Center,
             ) {
-                IconButton(
-                    onClick = { onSend(draft.trim()); draft = "" },
-                    enabled = enabled,
-                ) {
+                IconButton(onClick = send, enabled = enabled) {
                     Icon(
                         painterResource(R.drawable.ic_send),
                         contentDescription = "Wyślij",
-                        tint = if (enabled) Ink else Mist,
+                        tint = sendFg,
                         modifier = Modifier.size(20.dp),
                     )
                 }
             }
         }
+    }
+}
+
+/** Wybrany model jako przycisk — dotkniecie otwiera liste modeli. */
+@Composable
+private fun ModelChip(name: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .border(1.5.dp, Line, RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Ghost(size = 16.dp)
+        Spacer(Modifier.width(6.dp))
+        AnimatedContent(
+            targetState = name,
+            transitionSpec = {
+                (fadeIn(motionSpec(220)) + slideInVertically(motionSpec(220)) { it / 2 })
+                    .togetherWith(fadeOut(motionSpec(140)) + slideOutVertically(motionSpec(140)) { -it / 2 })
+            },
+            label = "model",
+        ) { n ->
+            Text(n, color = Paper, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Icon(
+            painterResource(R.drawable.ic_chevron_down),
+            contentDescription = "Zmień model",
+            tint = Mist,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
@@ -220,56 +330,106 @@ private fun TokenBar(context: Int, draft: Int, last: Pair<Int, Int>?, folded: In
 }
 
 @Composable
-private fun Bubble(message: ChatMessage, typing: Boolean = false, onTyped: () -> Unit = {}) {
-    val appear = remember { Animatable(0f) }
+private fun Bubble(
+    message: ChatMessage,
+    typing: Boolean = false,
+    animate: Boolean = true,
+    onTyped: () -> Unit = {},
+) {
+    val appear = remember { Animatable(if (animate && Prefs.animations) 0f else 1f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, motionSpec(320)) }
 
-    // Odpowiedz modelu odslania sie znak po znaku. Cala tresc juz jest —
-    // to wylacznie efekt wizualny, nie strumieniowanie z serwera.
+    // Odpowiedz modelu odslania sie znak po znaku, od razu sformatowana — wczesniej
+    // pisaly sie gole gwiazdki, ktore na koncu nagle znikaly. Cala tresc juz jest:
+    // to efekt wizualny, nie strumieniowanie z serwera.
     val full = message.text
-    var shown by remember(message) { mutableStateOf(if (typing && Prefs.animations) 0 else full.length) }
+    val total = remember(full) {
+        if (message.fromUser) full.length else Markdown.visibleLength(Markdown.blocks(full))
+    }
+    var shown by remember(message) { mutableStateOf(if (typing && Prefs.animations) 0 else total) }
     LaunchedEffect(typing) {
-        if (!typing || !Prefs.animations) { shown = full.length; return@LaunchedEffect }
-        val step = maxOf(1, full.length / 90)
-        while (shown < full.length) {
-            shown = minOf(full.length, shown + step)
+        if (!typing || !Prefs.animations) { shown = total; return@LaunchedEffect }
+        val step = maxOf(1, total / 90)
+        while (shown < total) {
+            shown = minOf(total, shown + step)
             delay(16)
         }
         onTyped()
     }
-    val caret = shown < full.length
-    Row(
+    val caret = shown < total
+    // Rog od strony nadawcy mniej zaokraglony — wiadomo, czyja to wypowiedz.
+    val shape = if (message.fromUser) {
+        RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+    } else {
+        RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+    }
+    Column(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start,
+        horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start,
     ) {
         Box(
             Modifier
                 .fillMaxWidth(0.86f)
                 .wrapContentWidth(if (message.fromUser) Alignment.End else Alignment.Start)
                 .graphicsLayer {
-                    alpha = appear.value
-                    translationY = (1f - appear.value) * 12f * density
+                    // Dymek „wyrasta” z rogu nadawcy.
+                    val k = appear.value
+                    alpha = k
+                    translationY = (1f - k) * 10f * density
+                    scaleX = 0.94f + 0.06f * k
+                    scaleY = 0.94f + 0.06f * k
+                    transformOrigin = TransformOrigin(if (message.fromUser) 1f else 0f, 1f)
                 }
-                .clip(RoundedCornerShape(20.dp))
+                .clip(shape)
                 .then(
                     if (message.fromUser) Modifier.background(Paper)
-                    else Modifier.border(1.5.dp, Line, RoundedCornerShape(20.dp))
+                    else Modifier.border(1.5.dp, Line, shape)
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            // Przytrzymanie zaznacza tekst i pozwala go skopiowac — wczesniej odpowiedzi
-            // modelu nie dalo sie nigdzie przeniesc.
+            // Przytrzymanie zaznacza tekst i pozwala go skopiowac.
             SelectionContainer {
-                if (!message.fromUser && !caret) {
-                    // Po dopisaniu sie calej odpowiedzi rysujemy jej Markdown.
-                    ChatMarkdown(full, Paper)
+                if (message.fromUser) {
+                    Text(full, color = Ink, fontSize = 15.sp)
                 } else {
-                    Text(
-                        full.take(shown) + if (caret) "▌" else "",
-                        color = if (message.fromUser) Ink else Paper,
-                        fontSize = 15.sp,
-                    )
+                    ChatMarkdown(full, Paper, visible = shown, caret = caret)
                 }
+            }
+        }
+        if (!message.fromUser && !caret) CopyButton(full)
+    }
+}
+
+/** Cala odpowiedz do schowka jednym dotknieciem — zaznaczanie dlugiego tekstu palcem jest meczace. */
+@Composable
+private fun CopyButton(text: String) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) { delay(1600); copied = false }
+    }
+    Row(
+        Modifier
+            .padding(top = 2.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable { clipboard.setText(AnnotatedString(text)); copied = true }
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AnimatedContent(
+            targetState = copied,
+            transitionSpec = { fadeIn(motionSpec(160)).togetherWith(fadeOut(motionSpec(120))) },
+            label = "copy",
+        ) { done ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painterResource(if (done) R.drawable.ic_check else R.drawable.ic_copy),
+                    contentDescription = null,
+                    tint = Mist,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(if (done) "Skopiowano" else "Kopiuj", color = Mist, fontSize = 12.sp)
             }
         }
     }
@@ -278,77 +438,111 @@ private fun Bubble(message: ChatMessage, typing: Boolean = false, onTyped: () ->
 /**
  * Odpowiedz modelu z Markdownem: pogrubienia, kursywa, `kod` w linii, naglowki,
  * punktory i bloki kodu przewijane w poziomie, zeby dlugie linie sie nie lamaly.
+ * [visible] to liczba widocznych znakow (bez znacznikow) — przy pisaniu odpowiedzi
+ * formatowanie jest od poczatku to samo, przybywa tylko tekstu.
  */
 @Composable
-fun ChatMarkdown(text: String, color: Color) {
+fun ChatMarkdown(text: String, color: Color, visible: Int = Int.MAX_VALUE, caret: Boolean = false) {
     val blocks = remember(text) { Markdown.blocks(text) }
+    // Ile znakow kazdego bloku widac. Bloki za granica jeszcze sie nie rysuja.
+    val parts = remember(blocks, visible) {
+        var budget = visible
+        blocks.mapNotNull { block ->
+            if (budget <= 0) return@mapNotNull null
+            val length = Markdown.visibleLength(listOf(block))
+            val take = minOf(length, budget)
+            budget -= length
+            block to take
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        blocks.forEach { block ->
-            when (block) {
-                is Markdown.Block.Text -> Text(styled(block.spans), color = color, fontSize = 15.sp)
-                is Markdown.Block.Code -> Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Raise)
-                        .horizontalScroll(rememberScrollState())
-                        .padding(12.dp),
-                ) {
-                    Text(
-                        block.code,
-                        color = color,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        softWrap = false,
-                    )
+        parts.forEachIndexed { i, (block, take) ->
+            val cursor = if (caret && i == parts.lastIndex) "▌" else ""
+            key(i) {
+                when (block) {
+                    is Markdown.Block.Text ->
+                        Text(styled(block.spans, take) + AnnotatedString(cursor), color = color, fontSize = 15.sp)
+                    is Markdown.Block.Code -> Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Raise)
+                            .horizontalScroll(rememberScrollState())
+                            .padding(12.dp),
+                    ) {
+                        Text(
+                            block.code.take(take) + cursor,
+                            color = color,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            softWrap = false,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-private fun styled(spans: List<Markdown.Span>): AnnotatedString = buildAnnotatedString {
-    spans.forEach { span ->
+/** Fragmenty ze stylami, obciete do [limit] widocznych znakow. */
+private fun styled(spans: List<Markdown.Span>, limit: Int = Int.MAX_VALUE): AnnotatedString = buildAnnotatedString {
+    var left = limit
+    for (span in spans) {
+        if (left <= 0) break
+        val part = if (span.text.length > left) span.text.take(left) else span.text
+        left -= span.text.length
         when (span.style) {
-            Markdown.Style.Plain -> append(span.text)
-            Markdown.Style.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(span.text) }
-            Markdown.Style.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(span.text) }
+            Markdown.Style.Plain -> append(part)
+            Markdown.Style.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(part) }
+            Markdown.Style.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(part) }
             Markdown.Style.Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Raise)) {
-                append(span.text)
+                append(part)
             }
         }
     }
 }
 
 @Composable
-private fun TypingBubble() {
+private fun TypingBubble(agent: String?) {
     val still = !Prefs.animations
     val anim = rememberInfiniteTransition(label = "typing")
+    val shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+    val appear = remember { Animatable(if (still) 1f else 0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, motionSpec(260)) }
     Row(
-        Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .border(1.5.dp, Line, RoundedCornerShape(20.dp))
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Modifier.graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 8f * density },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        repeat(3) { index ->
-            val kRaw by anim.animateFloat(
-                initialValue = 0f, targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    tween(600, delayMillis = index * 150, easing = FastOutSlowInEasing),
-                    RepeatMode.Reverse,
-                ),
-                label = "dot$index",
-            )
-            val k = if (still) 0.6f else kRaw
-            Box(
-                Modifier
-                    .size(7.dp)
-                    .graphicsLayer { translationY = -4f * k * density; alpha = 0.4f + 0.6f * k }
-                    .clip(RoundedCornerShape(50))
-                    .background(Paper),
-            )
+        Row(
+            Modifier
+                .clip(shape)
+                .border(1.5.dp, Line, shape)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            repeat(3) { index ->
+                val kRaw by anim.animateFloat(
+                    initialValue = 0f, targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        tween(600, delayMillis = index * 150, easing = FastOutSlowInEasing),
+                        RepeatMode.Reverse,
+                    ),
+                    label = "dot$index",
+                )
+                val k = if (still) 0.6f else kRaw
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .graphicsLayer { translationY = -4f * k * density; alpha = 0.4f + 0.6f * k }
+                        .clip(RoundedCornerShape(50))
+                        .background(Paper),
+                )
+            }
+        }
+        if (agent != null) {
+            Spacer(Modifier.width(12.dp))
+            Text("$agent myśli…", color = Mist, fontSize = 13.sp)
         }
     }
 }

@@ -1,6 +1,11 @@
 package pl.cyphr.app
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -8,12 +13,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -51,6 +58,10 @@ fun motion(millis: Int): Int = if (Prefs.animations) millis else 0
 fun <T> motionSpec(millis: Int, easing: Easing = FastOutSlowInEasing): FiniteAnimationSpec<T> =
     if (Prefs.animations) tween(millis, easing = easing) else snap()
 
+/** Sprezyna do drobnych ruchow (wybor, nacisniecie). Bez animacji — od razu stan koncowy. */
+fun <T> motionSpring(damping: Float = 0.7f, stiffness: Float = 420f): FiniteAnimationSpec<T> =
+    if (Prefs.animations) spring(dampingRatio = damping, stiffness = stiffness) else snap()
+
 fun usd(value: Double): String {
     val digits = if (value > 0 && value < 0.01) 4 else 2
     return String.format(Locale("pl", "PL"), "%,.${digits}f USD", value)
@@ -60,7 +71,7 @@ fun int(value: Long): String = String.format(Locale("pl", "PL"), "%,d", value)
 
 /** Logo. Unosi sie w gorze i w dole, gdy floating = true. */
 @Composable
-fun Ghost(size: Dp, modifier: Modifier = Modifier, floating: Boolean = false) {
+fun Ghost(size: Dp, modifier: Modifier = Modifier, floating: Boolean = false, tint: Color = Paper) {
     val shift: Float
     val tilt: Float
     if (floating && Prefs.animations) {
@@ -78,7 +89,7 @@ fun Ghost(size: Dp, modifier: Modifier = Modifier, floating: Boolean = false) {
     Icon(
         painter = painterResource(R.drawable.ghost),
         contentDescription = null,
-        tint = Paper,
+        tint = tint,
         modifier = modifier
             .size(size)
             .graphicsLayer { translationY = shift * density; rotationZ = tilt },
@@ -213,23 +224,41 @@ fun Field(
 
 @Composable
 fun ErrorText(message: String?) {
-    if (message.isNullOrBlank()) return
+    // Ostatni komunikat zostaje na czas znikania, zeby ramka nie zwijala sie pusta.
+    var last by remember { mutableStateOf(message) }
+    if (!message.isNullOrBlank() && message != last) last = message
     val shake = remember(message) { Animatable(0f) }
     LaunchedEffect(message) {
-        if (Prefs.animations) {
+        if (Prefs.animations && !message.isNullOrBlank()) {
             shake.animateTo(1f, tween(400, easing = LinearEasing))
             shake.snapTo(0f)
         }
     }
-    Text(
-        "! $message",
-        color = Paper,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Medium,
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer { translationX = (kotlin.math.sin(shake.value * 12f) * 5f) * density },
-    )
+    AnimatedVisibility(
+        visible = !message.isNullOrBlank(),
+        enter = fadeIn(motionSpec(220)) + expandVertically(motionSpec(220)),
+        exit = fadeOut(motionSpec(160)) + shrinkVertically(motionSpec(200)),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationX = (kotlin.math.sin(shake.value * 12f) * 5f) * density }
+                .clip(RoundedCornerShape(14.dp))
+                .background(Raise)
+                .border(1.dp, Line, RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(20.dp).clip(CircleShape).background(Paper),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("!", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(last.orEmpty(), color = Paper, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+    }
 }
 
 @Composable

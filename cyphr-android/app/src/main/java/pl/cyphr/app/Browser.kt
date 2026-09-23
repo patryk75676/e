@@ -54,7 +54,7 @@ private val quickLinks = listOf(
     QuickLink("GitHub", "https://github.com"),
     QuickLink("YouTube", "https://youtube.com"),
     QuickLink("Hacker News", "https://news.ycombinator.com"),
-    QuickLink("Routeway", "https://routeway.ai"),
+    QuickLink("CYPHR", "https://cyphr.com.pl"),
 )
 
 /**
@@ -348,7 +348,7 @@ private fun IconPill(icon: Int, enabled: Boolean = true, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StartPage(onOpen: (String) -> Unit, onSearch: (String) -> Unit) {
+internal fun StartPage(onOpen: (String) -> Unit, onSearch: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
     Column(
         Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp),

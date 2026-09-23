@@ -6,7 +6,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 /**
- * Szyfrowany schowek na token sesji i dane SSH.
+ * Szyfrowany schowek na tokeny sesji.
  * Klucz siedzi w Keystore urzadzenia, wiec nic nie leży w plikach jawnym tekstem.
  */
 object SecureStore {
@@ -15,7 +15,7 @@ object SecureStore {
 
     /**
      * Zapas na wypadek odmowy Keystore. Ginie razem z procesem — i o to chodzi.
-     * Token sesji ani haslo SSH nie moga trafic na dysk bez szyfrowania, wiec
+     * Token sesji nie moze trafic na dysk bez szyfrowania, wiec
      * gdy szyfrowany schowek nie wstaje, zostaja tylko w pamieci na ta sesje.
      */
     private val memory = mutableMapOf<String, String>()

@@ -4,7 +4,6 @@ import android.content.Context
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,10 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 
 /** Ustawienia zapisywane na urzadzeniu. Wartosci domyslne biora sie z gradle.properties. */
@@ -37,8 +34,6 @@ object Prefs {
             "Gdy pytanie odnosi się do czegoś wcześniejszego, odnieś się do tego wprost.\n" +
             "Jeśli czegoś nie wiesz albo brakuje Ci danych, powiedz to zamiast zgadywać."
 
-    private val _apiUrl = mutableStateOf<String>(BuildConfig.BASE_URL)
-    val apiUrl: String get() = _apiUrl.value
     private val _homePage = mutableStateOf<String>("https://duckduckgo.com")
     val homePage: String get() = _homePage.value
     private val _animations = mutableStateOf<Boolean>(true)
@@ -47,17 +42,6 @@ object Prefs {
     val desktopMode: Boolean get() = _desktopMode.value
     private val _agent = mutableStateOf<String?>(null)
     val agent: String? get() = _agent.value
-
-    /** Modele przypiete na gorze listy agentow. */
-    private val _favourites = mutableStateOf<Set<String>>(emptySet())
-    val favourites: Set<String> get() = _favourites.value
-
-    fun isFavourite(id: String): Boolean = id in _favourites.value
-
-    fun toggleFavourite(id: String) {
-        _favourites.value = _favourites.value.let { if (id in it) it - id else it + id }
-        edit { putStringSet("favourites", _favourites.value) }
-    }
 
     /** Instrukcja wysylana jako wiadomosc "system" przed kazda rozmowa. */
     private val _systemPrompt = mutableStateOf(DEFAULT_PROMPT)
@@ -100,66 +84,42 @@ object Prefs {
     private val _lockAfterSeconds = mutableStateOf<Int>(60)
     val lockAfterSeconds: Int get() = _lockAfterSeconds.value
 
-    // Dane do prawdziwego terminala po SSH
-    private val _sshHost = mutableStateOf<String>("")
-    val sshHost: String get() = _sshHost.value
-    private val _sshPort = mutableStateOf<Int>(22)
-    val sshPort: Int get() = _sshPort.value
-    private val _sshUser = mutableStateOf<String>("")
-    val sshUser: String get() = _sshUser.value
-
     /** Czy aplikacja juz raz sama poprosila o zgode na sterowanie Termuxem. */
     val termuxAsked: Boolean
         get() = app.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("termux_asked", false)
 
     fun setTermuxAsked() = edit { putBoolean("termux_asked", true) }
 
-    fun sshPassword(): String? = SecureStore.get("ssh_pass")
-
-    val sshReady: Boolean get() = sshHost.isNotBlank() && sshUser.isNotBlank() && !sshPassword().isNullOrBlank()
-
     fun init(context: Context) {
         app = context.applicationContext
         val sp = app.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        _apiUrl.value = sp.getString("api_url", null)?.ifBlank { null } ?: BuildConfig.BASE_URL
+        forgetRemovedSettings(sp)
         _homePage.value = sp.getString("home_page", null) ?: "https://duckduckgo.com"
         _animations.value = sp.getBoolean("animations", true)
         _desktopMode.value = sp.getBoolean("desktop_mode", false)
         _agent.value = sp.getString("agent", null)
         _systemPrompt.value = sp.getString("system_prompt", null) ?: DEFAULT_PROMPT
-        _favourites.value = sp.getStringSet("favourites", null)?.toSet() ?: emptySet()
         _askCommands.value = sp.getBoolean("ask_cmd", true)
         _agentTerminal.value = sp.getBoolean("agent_terminal", true)
         _appLock.value = sp.getBoolean("app_lock", true)
         _secureScreen.value = sp.getBoolean("secure_screen_all", false)
         _confirmBuy.value = sp.getBoolean("confirm_buy", true)
         _lockAfterSeconds.value = sp.getInt("lock_after", 60)
-        _sshHost.value = sp.getString("ssh_host", "") ?: ""
-        _sshPort.value = sp.getInt("ssh_port", 22)
-        _sshUser.value = sp.getString("ssh_user", "") ?: ""
+    }
+
+    /**
+     * Aplikacja jest dla klientow: nie ma juz trybu SSH ani wlasnego adresu serwera.
+     * Starsze wersje mogly je zapisac — dane logowania SSH nie powinny zostawac
+     * na telefonie, a zapomniany adres testowy odcinalby aplikacje od serwera CYPHR.
+     */
+    private fun forgetRemovedSettings(sp: android.content.SharedPreferences) {
+        val old = listOf("api_url", "ssh_host", "ssh_port", "ssh_user", "favourites")
+        if (old.any { sp.contains(it) }) sp.edit().apply { old.forEach { remove(it) } }.apply()
+        if (SecureStore.get("ssh_pass") != null) SecureStore.put("ssh_pass", null)
     }
 
     private fun edit(block: android.content.SharedPreferences.Editor.() -> Unit) {
         app.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().apply(block).apply()
-    }
-
-    /**
-     * Zwraca null gdy adres przyjeto, albo powod odmowy. Token sesji leci w naglowku
-     * kazdego zapytania, wiec adres bez https odrzucamy tutaj, zamiast pozwolic
-     * aplikacji probowac i zglaszac potem mylacy brak polaczenia.
-     */
-    fun setApiUrl(value: String): String? {
-        val clean = value.trim().trimEnd('/')
-        if (clean.isBlank()) {
-            _apiUrl.value = BuildConfig.BASE_URL
-            edit { putString("api_url", _apiUrl.value) }
-            return null
-        }
-        if (!clean.startsWith("https://")) return "Adres musi zaczynać się od https://"
-        if (clean.removePrefix("https://").isBlank()) return "Brakuje nazwy serwera."
-        _apiUrl.value = clean
-        edit { putString("api_url", clean) }
-        return null
     }
 
     fun setHomePage(value: String) {
@@ -184,22 +144,6 @@ object Prefs {
     fun setConfirmBuy(value: Boolean) { _confirmBuy.value = value; edit { putBoolean("confirm_buy", value) } }
     fun setLockAfter(seconds: Int) { _lockAfterSeconds.value = seconds; edit { putInt("lock_after", seconds) } }
 
-    fun setSsh(host: String, port: Int, user: String, password: String?) {
-        _sshHost.value = host.trim(); _sshPort.value = port; _sshUser.value = user.trim()
-        edit {
-            putString("ssh_host", sshHost)
-            putInt("ssh_port", sshPort)
-            putString("ssh_user", sshUser)
-        }
-        if (password != null) SecureStore.put("ssh_pass", password)
-    }
-
-    fun clearSsh() {
-        _sshHost.value = ""; _sshUser.value = ""; _sshPort.value = 22
-        edit { remove("ssh_host"); remove("ssh_user"); remove("ssh_port") }
-        SecureStore.put("ssh_pass", null)
-    }
-
     fun setSystemPrompt(value: String) {
         _systemPrompt.value = value.trim().ifBlank { DEFAULT_PROMPT }
         edit { putString("system_prompt", _systemPrompt.value) }
@@ -212,77 +156,38 @@ object Prefs {
 }
 
 @Composable
-fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> Unit, onClosed: () -> Unit) {
-    var api by remember { mutableStateOf(Prefs.apiUrl) }
+fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> Unit) {
     var home by remember { mutableStateOf(Prefs.homePage) }
-    var host by remember { mutableStateOf(Prefs.sshHost) }
-    var port by remember { mutableStateOf(Prefs.sshPort.toString()) }
-    var sshUser by remember { mutableStateOf(Prefs.sshUser) }
-    var sshPass by remember { mutableStateOf("") }
-    var sshSaved by remember { mutableStateOf(Prefs.sshReady) }
+    var homeSaved by remember { mutableStateOf(false) }
     var cleared by remember { mutableStateOf(false) }
     var prompt by remember { mutableStateOf(Prefs.systemPrompt) }
-    var apiError by remember { mutableStateOf<String?>(null) }
+    var promptSaved by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp),
     ) {
         SectionTitle("Ustawienia", Modifier.padding(top = 6.dp, bottom = 18.dp))
 
-        Group("Połączenie") {
-            Field(api, "Adres API", { api = it; apiError = null })
-            Spacer(Modifier.height(10.dp))
-            GhostButton("Zapisz adres") {
-                apiError = Prefs.setApiUrl(api)
-                if (apiError == null) { api = Prefs.apiUrl; onClosed() }
+        Group("Czat") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Model", color = Mist)
+                Text(agentName ?: "nie wybrano", color = Paper, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(8.dp))
-            ErrorText(apiError)
-            Lead("Domyślnie: ${BuildConfig.BASE_URL}. Dozwolone jest wyłącznie https.")
-        }
-
-        Group("Terminal — Termux") {
-            TermuxSetup()
-        }
-
-        Group("Terminal SSH") {
-            Lead("Tryb SSH daje prawdziwą powłokę serwera, z apt, gitem i resztą narzędzi.")
-            Spacer(Modifier.height(12.dp))
-            Field(host, "Host", { host = it })
-            Spacer(Modifier.height(10.dp))
-            Field(port, "Port", { port = it.filter { c -> c.isDigit() }.take(5) }, keyboard = KeyboardType.Number)
-            Spacer(Modifier.height(10.dp))
-            Field(sshUser, "Użytkownik", { sshUser = it })
-            Spacer(Modifier.height(10.dp))
-            Field(sshPass, if (sshSaved) "Hasło (zapisane)" else "Hasło", { sshPass = it }, password = true)
-            Spacer(Modifier.height(12.dp))
-            GhostButton("Zapisz dane SSH") {
-                Prefs.setSsh(host, port.toIntOrNull() ?: 22, sshUser, sshPass.ifBlank { null })
-                sshPass = ""
-                sshSaved = Prefs.sshReady
-            }
-            Spacer(Modifier.height(10.dp))
-            GhostButton("Usuń dane SSH") {
-                Prefs.clearSsh(); host = ""; sshUser = ""; port = "22"; sshPass = ""; sshSaved = false
-            }
-            Spacer(Modifier.height(8.dp))
-            Lead("Hasło trzyma szyfrowany schowek oparty o Keystore telefonu. Klucz serwera jest zapamiętywany i sprawdzany przy każdym połączeniu.")
-        }
-
-        Group("Uprawnienia") {
-            Toggle("Model może wykonywać polecenia", Prefs.agentTerminal) { Prefs.setAgentTerminal(it) }
-            Spacer(Modifier.height(6.dp))
-            Lead(
-                "Model może poprosić o uruchomienie polecenia w terminalu i przeczytać wynik. " +
-                    "Każde polecenie potwierdzasz osobno i możesz odmówić. " +
-                    "Idzie do Termuxa, jeśli jest połączony, inaczej do powłoki Androida.",
-            )
             Spacer(Modifier.height(16.dp))
-            Toggle("Pytaj przed każdym poleceniem", Prefs.askCommands) { Prefs.setAskCommands(it) }
-            Spacer(Modifier.height(12.dp))
+            Field(prompt, "Twoje instrukcje dla modelu", { prompt = it; promptSaved = false }, lines = 6)
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GhostButton(if (promptSaved) "Zapisano" else "Zapisz", Modifier.weight(1f)) {
+                    Prefs.setSystemPrompt(prompt); prompt = Prefs.systemPrompt; promptSaved = true
+                }
+                GhostButton("Domyślne", Modifier.weight(1f)) {
+                    Prefs.setSystemPrompt(Prefs.DEFAULT_PROMPT); prompt = Prefs.systemPrompt; promptSaved = false
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             Lead(
-                "Zapis pliku, polecenia groźne (rm, mv, chmod, dd, przekierowania) oraz wysłanie " +
-                    "treści strony do modelu pytają zawsze. Nie ma trybu, który to wyłącza.",
+                "Model bierze je pod uwagę w każdej rozmowie. Długie rozmowy są same streszczane, " +
+                    "żeby każda kolejna wiadomość nie kosztowała coraz więcej.",
             )
         }
 
@@ -309,17 +214,16 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
             }
             Spacer(Modifier.height(14.dp))
             Toggle("Blokada po powrocie do aplikacji", Prefs.appLock) { Prefs.setAppLock(it) }
-            Spacer(Modifier.height(4.dp))
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
             LockAfterPicker()
             Spacer(Modifier.height(14.dp))
             Toggle("Potwierdzaj zakupy", Prefs.confirmBuy) { Prefs.setConfirmBuy(it) }
             Spacer(Modifier.height(14.dp))
             if (!SecureStore.encrypted) {
                 Lead(
-                    "Uwaga: szyfrowany schowek nie wstał na tym urządzeniu. Token sesji i hasło SSH " +
-                        "są trzymane tylko w pamięci i znikną po zamknięciu aplikacji — nie trafiają " +
-                        "na dysk bez szyfrowania. Trzeba będzie logować się za każdym razem.",
+                    "Uwaga: szyfrowany schowek nie wstał na tym urządzeniu. Token sesji jest trzymany " +
+                        "tylko w pamięci i zniknie po zamknięciu aplikacji — nie trafia na dysk bez " +
+                        "szyfrowania. Trzeba będzie logować się za każdym razem.",
                 )
                 Spacer(Modifier.height(14.dp))
             }
@@ -329,12 +233,14 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
         }
 
         Group("Przeglądarka") {
-            Field(home, "Strona startowa", { home = it })
+            Field(home, "Strona startowa", { home = it; homeSaved = false })
             Spacer(Modifier.height(10.dp))
-            GhostButton("Zapisz stronę") { Prefs.setHomePage(home); home = Prefs.homePage }
-            Spacer(Modifier.height(12.dp))
+            GhostButton(if (homeSaved) "Zapisano" else "Zapisz stronę") {
+                Prefs.setHomePage(home); home = Prefs.homePage; homeSaved = true
+            }
+            Spacer(Modifier.height(14.dp))
             Toggle("Widok komputera", Prefs.desktopMode) { Prefs.setDesktopMode(it) }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
             GhostButton(if (cleared) "Wyczyszczono" else "Wyczyść ciasteczka i pamięć") {
                 CookieManager.getInstance().removeAllCookies(null)
                 WebStorage.getInstance().deleteAllData()
@@ -348,40 +254,32 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
             Lead("Wyłączone animacje zatrzymują wszystkie ruchy: duszka, kartę, przejścia i dymki.")
         }
 
-        Group("Agent") {
-            Lead(agentName ?: "Nie wybrano agenta.")
-            Spacer(Modifier.height(14.dp))
-            Field(prompt, "Instrukcja dla modelu", { prompt = it }, lines = 7)
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GhostButton("Zapisz", Modifier.weight(1f)) {
-                    Prefs.setSystemPrompt(prompt); prompt = Prefs.systemPrompt
-                }
-                GhostButton("Domyślna", Modifier.weight(1f)) {
-                    Prefs.setSystemPrompt(Prefs.DEFAULT_PROMPT); prompt = Prefs.systemPrompt
-                }
-            }
-            Spacer(Modifier.height(8.dp))
+        Group("Terminal") {
+            TermuxSetup()
+            Spacer(Modifier.height(18.dp))
+            HorizontalDivider(color = Line, thickness = 1.dp)
+            Spacer(Modifier.height(16.dp))
+            Toggle("Model może wykonywać polecenia", Prefs.agentTerminal) { Prefs.setAgentTerminal(it) }
+            Spacer(Modifier.height(6.dp))
             Lead(
-                "Ten tekst idzie do modelu przed każdą rozmową, jako wiadomość systemowa.\n\n" +
-                    "Dosłownie wysyłanych jest ostatnie $KEEP_VERBATIM wiadomości. Starsze, gdy uzbiera " +
-                    "się ich ponad $FOLD_ABOVE tokenów, są raz zwijane w notatkę z ustaleniami, " +
-                    "potwierdzonymi wynikami i nieudanymi podejściami — i dalej idzie już tylko ona. " +
-                    "Dzięki temu długa rozmowa nie drożeje z każdą wiadomością.",
+                "Model może poprosić o uruchomienie polecenia w terminalu i przeczytać wynik. " +
+                    "Każde polecenie potwierdzasz osobno i możesz odmówić. " +
+                    "Idzie do Termuxa, jeśli jest połączony, inaczej do powłoki Androida.",
             )
-        }
-
-        Group("Narzędzia") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_terminal), null, tint = Paper)
-                Spacer(Modifier.width(12.dp))
-                GhostButton("Terminal", onClick = onTerminal)
-            }
+            Spacer(Modifier.height(16.dp))
+            Toggle("Pytaj przed każdym poleceniem", Prefs.askCommands) { Prefs.setAskCommands(it) }
+            Spacer(Modifier.height(6.dp))
+            Lead(
+                "Zapis pliku, polecenia groźne (rm, mv, chmod, dd, przekierowania) oraz wysłanie " +
+                    "treści strony do modelu pytają zawsze. Nie ma trybu, który to wyłącza.",
+            )
+            Spacer(Modifier.height(16.dp))
+            GhostButton("Otwórz terminal", onClick = onTerminal)
         }
 
         GhostButton("Wyloguj się", onClick = onLogout)
-        Spacer(Modifier.height(16.dp))
-        Lead("CYPHR ${BuildConfig.VERSION_NAME}")
+        Spacer(Modifier.height(18.dp))
+        Lead("CYPHR ${BuildConfig.VERSION_NAME}", Modifier.fillMaxWidth(), center = true)
         Spacer(Modifier.height(30.dp))
     }
 }
@@ -403,19 +301,22 @@ private fun LockAfterPicker() {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (seconds, label) ->
             val on = Prefs.lockAfterSeconds == seconds
+            val bg by androidx.compose.animation.animateColorAsState(if (on) Paper else Ink, motionSpec(220), label = "lockBg")
+            val edge by androidx.compose.animation.animateColorAsState(if (on) Paper else Line, motionSpec(220), label = "lockEdge")
+            val fg by androidx.compose.animation.animateColorAsState(if (on) Ink else Mist, motionSpec(220), label = "lockFg")
             Box(
                 Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(50))
-                    .background(if (on) Paper else Ink)
-                    .border(1.5.dp, if (on) Paper else Line, RoundedCornerShape(50))
+                    .background(bg)
+                    .border(1.5.dp, edge, RoundedCornerShape(50))
                     .clickable { Prefs.setLockAfter(seconds) }
                     .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label,
-                    color = if (on) Ink else Mist,
+                    color = fg,
                     fontSize = 12.sp,
                     fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                 )

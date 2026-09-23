@@ -162,7 +162,8 @@ private fun Chip() {
 /** Animacja zakupu: karta wsuwa sie w czytnik, obraca i konczy znakiem potwierdzenia. */
 @Composable
 fun BuyAnimation(label: String, amount: String, holder: String, done: Boolean, modifier: Modifier = Modifier) {
-    val progress = remember { Animatable(0f) }
+    // Bez animacji od razu stan koncowy — inaczej karta czekalaby na pierwsza klatke niewidoczna.
+    val progress = remember { Animatable(if (Prefs.animations) 0f else 1f) }
     LaunchedEffect(Unit) { progress.animateTo(1f, motionSpec(900)) }
     val check by animateFloatAsState(if (done) 1f else 0f, motionSpec(500), label = "check")
 

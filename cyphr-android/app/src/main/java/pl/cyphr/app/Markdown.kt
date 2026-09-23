@@ -78,6 +78,14 @@ object Markdown {
         return out
     }
 
+    /** Ile znakow widac po narysowaniu — bez znacznikow `**`, `#` czy ```. */
+    fun visibleLength(blocks: List<Block>): Int = blocks.sumOf { block ->
+        when (block) {
+            is Block.Text -> block.spans.sumOf { it.text.length }
+            is Block.Code -> block.code.length
+        }
+    }
+
     /** Style w obrebie linii. Znacznik bez pary zostaje zwyklym tekstem. */
     fun inline(text: String): List<Span> {
         val spans = mutableListOf<Span>()

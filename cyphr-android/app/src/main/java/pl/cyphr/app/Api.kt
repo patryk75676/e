@@ -22,22 +22,20 @@ data class User(
 )
 
 /**
- * Modele oferowane w aplikacji. Trzymamy je tutaj, bo /v1/models zwraca caly cennik
- * dostawcy albo blad, a klientowi pokazujemy wybrana liste. Rozmowa dziala niezaleznie
- * od tego katalogu — backend przekazuje do dostawcy identyfikator, ktory dostanie.
+ * Modele oferowane w aplikacji — dokladnie te dwa. Identyfikator idzie do serwera,
+ * ktory przekazuje go dalej; uzytkownik widzi wylacznie nazwe CYPHR i opis.
+ * Pochodzenia modeli aplikacja nigdzie nie pokazuje (patrz Persona).
  */
 val CATALOG = listOf(
-    // Nazwy jeden do jednego z katalogiem dostawcy. Skrocone myla sie z wersjami
-    // ocenzurowanymi, ktore nazywaja sie tak samo bez dopisku.
     Agent(
         "glm-5.3-flash-uncensored",
-        "GLM 5.3 Flash Uncensored",
-        "262 tys. kontekstu",
+        "CYPHR Flash",
+        "Szybkie odpowiedzi i bardzo długa pamięć rozmowy — 262 tys. tokenów.",
     ),
     Agent(
         "qwen3.8-27b-uncensored",
-        "Qwen3.8 27B Uncensored",
-        "131 tys. kontekstu",
+        "CYPHR Pro",
+        "Staranniejsze odpowiedzi przy trudniejszych zadaniach — 131 tys. tokenów pamięci.",
     ),
 )
 
@@ -47,26 +45,21 @@ const val DEFAULT_AGENT = "glm-5.3-flash-uncensored"
 /**
  * Laczy katalog aplikacji z lista, ktora dopuszcza serwer.
  *
- * Serwer decyduje, czym wolno rozmawiac — model spoza jego listy konczy sie
- * bledem przy pierwszej wiadomosci, wiec nie ma go po co pokazywac. Z katalogu
- * bierzemy nazwe i opis, z serwera aktualna cene i sam fakt dostepnosci.
- * Gdy serwer milczy, zostaje katalog, zeby bylo w co kliknac.
+ * Pokazujemy wylacznie modele z katalogu — pod nazwami CYPHR. Model spoza katalogu
+ * przyszedlby z nazwa i opisem dostawcy, a /v1/models potrafi oddac caly jego cennik.
+ * Z serwera bierzemy sam fakt dostepnosci i aktualna cene. Gdy serwer milczy albo
+ * nie zna zadnego z naszych modeli, zostaje caly katalog, zeby bylo w co kliknac.
  */
 fun mergeAgents(remote: List<Agent>): List<Agent> {
-    if (remote.isEmpty()) return CATALOG
-    val order = CATALOG.withIndex().associate { (i, a) -> a.id to i }
-    val known = CATALOG.associateBy { it.id }
-    return remote
-        .map { r ->
-            val c = known[r.id] ?: return@map r
-            val extra = r.description
-            if (extra.isBlank()) c else c.copy(description = "${c.description} · $extra")
-        }
-        .sortedBy { order[it.id] ?: Int.MAX_VALUE }
+    val byId = remote.associateBy { it.id }
+    val offered = CATALOG.filter { it.id in byId }
+    if (offered.isEmpty()) return CATALOG
+    return offered.map { c -> c.copy(price = byId.getValue(c.id).price) }
 }
 
 data class Pack(val id: String, val name: String, val amountUsd: Double)
-data class Agent(val id: String, val name: String, val description: String)
+/** Model do wyboru. [price] przychodzi z serwera, nazwa i opis — z katalogu. */
+data class Agent(val id: String, val name: String, val description: String, val price: String? = null)
 data class ChatMessage(val text: String, val fromUser: Boolean)
 data class Shop(val packages: List<Pack>, val testLeftUsd: Double)
 data class Usage(val balanceUsd: Double, val spentUsd: Double, val tokens: Long)
@@ -134,7 +127,8 @@ object Api {
     }
 
     /** Adres serwera. Mozna go zmienic w ustawieniach aplikacji. */
-    private fun base(): String = Prefs.apiUrl
+    /** Zawsze serwer CYPHR — klient nie ustawia adresu sam. */
+    private fun base(): String = BuildConfig.BASE_URL
 
     fun token(): String? = token
 
@@ -198,7 +192,7 @@ object Api {
                 if (!it.isSuccessful) {
                     // Limiter i awarie serwera odpowiadaja zwyklym tekstem, nie JSON-em.
                     // Bez tego uzytkownik widzialby tylko "Cos poszlo nie tak".
-                    val fromServer = data.optString("message").ifBlank { null }
+                    val fromServer = data.optString("message").ifBlank { null }?.let { Persona.scrub(it) }
                     val retryAfter = it.header("Retry-After")?.trim()?.toIntOrNull()
                     throw ApiError(
                         fromServer ?: explain(it.code, retryAfter),
@@ -357,7 +351,7 @@ object Api {
     }
 
 
-    /** Lista modeli z proxy Routeway. Sluzy jako lista agentow do wyboru. */
+    /** Modele, ktore serwer dopuszcza, z aktualna cena. Na liste trafiaja tylko te z [CATALOG]. */
     suspend fun models(): List<Agent> {
         val r = call("/v1/models")
         val arr = r.optJSONArray("data") ?: return emptyList()
@@ -370,7 +364,8 @@ object Api {
                 val out = it.optDouble("output_usd_per_m", 0.0)
                 if (i > 0 || out > 0) "${money(i)} / ${money(out)} $ za mln tokenów" else null
             }
-            Agent(id, o.optString("name").ifBlank { id }, price ?: o.optString("owned_by"))
+            // Bez owned_by — to nazwa dostawcy, a tej aplikacja nigdzie nie pokazuje.
+            Agent(id, o.optString("name").ifBlank { id }, "", price)
         }
     }
 
@@ -382,8 +377,10 @@ object Api {
         toolInstructions: String? = null,
     ): Reply {
         val arr = org.json.JSONArray()
-        val system = listOfNotNull(Prefs.systemPrompt.takeIf { it.isNotBlank() }, toolInstructions)
-            .joinToString("\n")
+        val name = Persona.nameOf(model)
+        // Tozsamosc CYPHR idzie pierwsza i nie da sie jej usunac z Ustawien.
+        val system = listOfNotNull(Persona.system(name), Prefs.systemPrompt.takeIf { it.isNotBlank() }, toolInstructions)
+            .joinToString("\n\n")
         system.takeIf { it.isNotBlank() }?.let {
             arr.put(JSONObject().put("role", "system").put("content", it))
         }
@@ -406,11 +403,18 @@ object Api {
         val content = message?.optString("content").orEmpty().trim()
         // Modele rozumujace pisza najpierw tok myslenia w "reasoning", a dopiero potem
         // odpowiedz w "content". Gdy zabraknie im limitu na to drugie, content zostaje
-        // pusty — wtedy lepiej pokazac to, co jest, niz nic.
+        // pusty — wtedy lepiej pokazac to, co jest, niz nic. Chyba ze model rozwaza
+        // w nim, na czym dziala: tego aplikacja nie pokazuje.
         val reasoning = message?.optString("reasoning").orEmpty().trim()
+        val text = when {
+            content.isNotBlank() -> content
+            reasoning.isNotBlank() && Persona.showable(reasoning) -> reasoning
+            reasoning.isNotBlank() -> "Model nie zdążył dokończyć odpowiedzi. Zadaj pytanie jeszcze raz."
+            else -> "Model nie zwrócił odpowiedzi."
+        }
         val u = r.optJSONObject("usage")
         return Reply(
-            text = content.ifBlank { reasoning }.ifBlank { "Model nie zwrócił odpowiedzi." },
+            text = Persona.clean(text, name),
             inTokens = u?.optInt("prompt_tokens", 0) ?: 0,
             outTokens = u?.optInt("completion_tokens", 0) ?: 0,
         )

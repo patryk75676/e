@@ -36,12 +36,12 @@ private const val MAX_EDIT_BYTES = 512 * 1024
 /** Reczne polecenie w Termuxie (np. instalacja pakietow) moze trwac dlugo. */
 private const val TERMUX_MANUAL_TIMEOUT_MS = 10 * 60 * 1000L
 
-private enum class Mode { Local, Termux, Ssh }
+private enum class Mode { Local, Termux }
 
 /**
  * Terminal ma dwa tryby.
  * Lokalny uruchamia polecenia systemu Androida w piaskownicy aplikacji.
- * SSH laczy sie z prawdziwym serwerem i daje pelna powloke z apt, gitem i reszta.
+ * Termux wysyla je do zainstalowanego Termuksa — z jego pakietami, pythonem i gitem.
  */
 @Composable
 fun TerminalTab() {
@@ -49,7 +49,7 @@ fun TerminalTab() {
     val scope = rememberCoroutineScope()
     val home = remember { File(context.filesDir, "home").apply { mkdirs() } }
 
-    var mode by remember { mutableStateOf(if (Prefs.sshReady) Mode.Ssh else Mode.Local) }
+    var mode by remember { mutableStateOf(Mode.Local) }
     var cwd by remember { mutableStateOf(home) }
     // Termux uruchamia kazde polecenie osobno, wiec katalog pamietamy tutaj.
     var termuxCwd by remember { mutableStateOf(Termux.HOME) }
@@ -61,7 +61,6 @@ fun TerminalTab() {
     var pending by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<Pair<File, String>?>(null) }
     var saveAsk by remember { mutableStateOf(false) }
-    var sshState by remember { mutableStateOf("rozłączony") }
     val listState = rememberLazyListState()
 
     // Biezace polecenie, zeby dalo sie je przerwac. Proces lokalny zabijamy,
@@ -74,43 +73,14 @@ fun TerminalTab() {
         lines = (lines + text.trimEnd().split("\n")).takeLast(600)
     }
 
-    val ssh = remember {
-        SshSession(
-            scope = scope,
-            onOutput = { push(it) },
-            onClosed = { reason ->
-                sshState = "rozłączony"
-                push(reason?.let { "Połączenie zamknięte: $it" } ?: "Połączenie zamknięte.")
-            },
-        )
-    }
-
     DisposableEffect(Unit) {
         onDispose {
-            ssh.disconnect()
             // Wyjscie z terminala nie zostawia w tle polecenia, ktore sie nie konczy.
             process.getAndSet(null)?.kill()
             job?.cancel()
         }
     }
     LaunchedEffect(lines.size) { if (lines.isNotEmpty()) listState.animateScrollToItem(lines.size - 1) }
-
-    fun connectSsh() {
-        if (!Prefs.sshReady) { push("Uzupełnij dane SSH w ustawieniach."); return }
-        scope.launch {
-            sshState = "łączenie"
-            push("Łączę z ${Prefs.sshUser}@${Prefs.sshHost}:${Prefs.sshPort}")
-            val result = ssh.connect(Prefs.sshHost, Prefs.sshPort, Prefs.sshUser, Prefs.sshPassword().orEmpty())
-            if (result.isSuccess) {
-                sshState = "połączony"
-            } else {
-                sshState = "rozłączony"
-                push("Błąd: ${result.exceptionOrNull()?.message}")
-            }
-        }
-    }
-
-    LaunchedEffect(mode) { if (mode == Mode.Ssh && sshState == "rozłączony") connectSsh() }
 
     LaunchedEffect(running) {
         elapsed = 0
@@ -213,15 +183,11 @@ fun TerminalTab() {
     }
 
     fun execute(command: String) {
-        if (running && mode != Mode.Ssh) {
+        if (running) {
             push("Poprzednie polecenie jeszcze działa. Dotknij Stop, żeby je przerwać.")
             return
         }
         when (mode) {
-            Mode.Ssh -> {
-                if (sshState != "połączony") { push("Brak połączenia. Dotknij Połącz."); return }
-                ssh.send(command)
-            }
             Mode.Termux -> {
                 if (!Termux.isInstalled(context)) {
                     push("Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję.")
@@ -242,9 +208,6 @@ fun TerminalTab() {
             command == "help" -> {
                 push(
                     when (mode) {
-                        Mode.Ssh ->
-                            "Tryb SSH: pełna powłoka serwera. Działa apt, git, nano i cała reszta.\n" +
-                                "clear czyści ekran, przełącznik u góry zmienia tryb."
                         Mode.Termux ->
                             "Tryb Termux: polecenia idą do zainstalowanego Termuksa.\n" +
                                 "Masz jego pkg, pythona, gita — wszystko, co tam zainstalujesz.\n" +
@@ -256,7 +219,7 @@ fun TerminalTab() {
                                 "cd <katalog> zmienia katalog, edit <plik> otwiera edytor, clear czyści ekran.\n" +
                                 "Katalog domowy: ${home.absolutePath}\n" +
                                 "To powłoka samego Androida — nie ma apt ani pythona.\n" +
-                                "Pełne narzędzia daje tryb Termux albo SSH."
+                                "Pełne narzędzia daje tryb Termux."
                     },
                 )
                 return
@@ -265,11 +228,11 @@ fun TerminalTab() {
                 push(
                     if (Termux.isInstalled(context))
                         "Termux jest zainstalowany. Dokładny stan i naprawę krok po kroku masz w " +
-                            "Ustawienia → Terminal — Termux.\n\n" +
+                            "Ustawienia → Terminal.\n\n" +
                             "Najczęstsze przyczyny, gdy polecenia nie przechodzą:\n" +
                             "1. Termux blokuje polecenia z innych aplikacji. Wklej mu raz:\n" +
                             "   ${Termux.SETUP_COMMAND}\n" +
-                            "2. CYPHR nie ma zgody na sterowanie Termuksem (Ustawienia → Terminal — Termux).\n" +
+                            "2. CYPHR nie ma zgody na sterowanie Termuksem (Ustawienia → Terminal).\n" +
                             "3. Termux nigdy nie był otwierany — otwórz go raz i poczekaj na koniec instalacji.\n" +
                             "4. Android usypia Termuksa — wyłącz mu optymalizację baterii.\n" +
                             "5. Wersja z Google Play jest za stara — potrzebna z F-Droid (0.109 lub nowsza)."
@@ -334,7 +297,6 @@ fun TerminalTab() {
             title = if (risky) "Groźne polecenie" else "Uruchomić polecenie?",
             what = "$ $command",
             detail = if (risky) "Może skasować albo nadpisać dane. Tego pytania nie da się wyłączyć."
-            else if (mode == Mode.Ssh) "Serwer: ${Prefs.sshUser}@${Prefs.sshHost}"
             else if (mode == Mode.Termux) "Termux, katalog ${Termux.shortPath(termuxCwd)}"
             else "Katalog: ${cwd.absolutePath}",
             allowAlways = !risky,
@@ -387,31 +349,13 @@ fun TerminalTab() {
                 mode = Mode.Termux
                 if (!Termux.isInstalled(context)) push("Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję.")
             }
-            ModeChip("SSH", mode == Mode.Ssh) { mode = Mode.Ssh }
-            Spacer(Modifier.weight(1f))
-            if (mode == Mode.Ssh) {
-                Text(sshState, color = if (sshState == "połączony") Paper else Mist, fontSize = 12.sp)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    if (sshState == "połączony") "Rozłącz" else "Połącz",
-                    color = Paper,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable {
-                        if (sshState == "połączony") {
-                            ssh.disconnect(); sshState = "rozłączony"; push("Rozłączono.")
-                        } else connectSsh()
-                    },
-                )
-            }
         }
 
         Text(
             when (mode) {
-                Mode.Ssh -> "${Prefs.sshUser}@${Prefs.sshHost}"
                 Mode.Termux -> if (Termux.isInstalled(context)) "termux:${Termux.shortPath(termuxCwd)}" else "termux — nie zainstalowany"
                 Mode.Local -> cwd.absolutePath
-            } + if (running && mode != Mode.Ssh && elapsed >= 2) "   ·  działa $elapsed s" else "",
+            } + if (running && elapsed >= 2) "   ·  działa $elapsed s" else "",
             color = Mist, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
@@ -453,7 +397,7 @@ fun TerminalTab() {
             Spacer(Modifier.width(10.dp))
             // Gdy polecenie dziala, ten sam przycisk je przerywa — inaczej `ping`
             // bez -c blokowal terminal na zawsze.
-            val canStop = running && mode != Mode.Ssh
+            val canStop = running
             IconButton(onClick = { if (canStop) stop() else run(input) }) {
                 Icon(
                     painterResource(if (canStop) R.drawable.ic_close else R.drawable.ic_send),

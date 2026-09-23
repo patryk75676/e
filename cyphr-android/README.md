@@ -3,16 +3,19 @@
 Natywna aplikacja w Kotlinie i Jetpack Compose. Czarno-biała, z logo duszka.
 
 Zakładki:
-- **Czat** — rozmowa z wybranym modelem przez `/v1/chat/completions`, dymki z animacją wejścia i duszkowy wskaźnik pisania.
-- **Agenci** — lista modeli z `/v1/models`, wybór zapamiętywany na stałe.
+- **Czat** — rozmowa z wybranym modelem przez `/v1/chat/completions`, dymki z animacją wejścia,
+  podpowiedzi na pustym ekranie, kopiowanie odpowiedzi jednym dotknięciem i wskaźnik „… myśli”.
+- **Agenci** — modele CYPHR (CYPHR Flash i CYPHR Pro) z ceną z `/v1/models`, wybór zapamiętywany na stałe.
+  Modele występują wyłącznie pod nazwami CYPHR — pochodzenia nie pokazuje żaden ekran (`Persona.kt`).
 - **Sklep** — karta płatnicza rysowana w 3D (obrót, refleks światła, chip), zakup obraca kartę i kończy znakiem potwierdzenia. Płatność jest testowa.
 - **Sieć** — przeglądarka z paskiem adresu w formie pigułki (kłódka i sama domena),
   stroną startową ze skrótami, własnym paskiem narzędzi i przyciskiem „Zapytaj AI”,
   który wysyła treść otwartej strony do modelu.
 - **Konto** — imię i e-mail, biała karta z aktualnym planem (Free, Plus, Pro),
   paskiem postępu do następnego progu, sumą doładowań, saldem i zużyciem w 30 dni.
-- **Ustawienia** (ikona w prawym górnym rogu) — adres API, strona startowa przeglądarki,
-  widok komputera, uprawnienia, animacje, czyszczenie ciasteczek, terminal i wylogowanie.
+- **Ustawienia** (ikona w prawym górnym rogu) — instrukcje dla modelu, bezpieczeństwo,
+  przeglądarka, animacje, terminal z Termuksem i wylogowanie. Bez ustawień technicznych:
+  aplikacja zawsze łączy się z serwerem z `cyphr.baseUrl`.
 
 ## Uprawnienia
 
@@ -29,7 +32,7 @@ Wyłączyć można wyłącznie pytanie o zwykłe, nieszkodliwe polecenia.
 
 ## Zabezpieczenia
 
-- token sesji i hasło SSH w `EncryptedSharedPreferences` z kluczem w Android Keystore,
+- token sesji w `EncryptedSharedPreferences` z kluczem w Android Keystore,
 - blokada wejścia odciskiem palca albo kodem ekranu (`BiometricPrompt`),
 - `FLAG_SECURE`: brak zrzutów ekranu i brak podglądu w liście ostatnich aplikacji,
 - wyłączony zwykły HTTP w całej aplikacji (`network_security_config`), także w przeglądarce,
@@ -48,11 +51,12 @@ Terminal ma dwa tryby:
 
 - **Lokalny** — polecenia systemu Androida w piaskownicy aplikacji (`/system/bin/sh`),
   z edytorem plików (`edit <plik>`). Bez `apt` i bez roota, bo tego Android nie pozwala obejść.
-- **SSH** — prawdziwa powłoka na Twoim serwerze, po JSch. Działa `apt`, `git`, `nano`,
-  historia, wszystko. Wyjście leci strumieniem na żywo, a nie paczkami po komendzie.
-  Dane logowania ustawiasz w Ustawieniach, hasło trafia do szyfrowanego schowka
-  opartego o Keystore telefonu. Klucz hosta jest zapamiętywany przy pierwszym
-  połączeniu i sprawdzany przy każdym kolejnym — jego zmiana zrywa połączenie.
+- **Termux** — polecenia idą do zainstalowanego Termuksa (z F-Droid), z jego `pkg`,
+  pythonem i gitem. Stan połączenia i konfigurację krok po kroku pokazuje
+  Ustawienia → Terminal.
+
+Trybu SSH już nie ma — aplikacja jest dla klientów, a starsze wersje przy pierwszym
+uruchomieniu nowej kasują zapisane dane SSH i własny adres serwera.
 
 ## 1. Ustawienia przed budowaniem
 

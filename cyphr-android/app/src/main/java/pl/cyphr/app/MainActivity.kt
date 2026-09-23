@@ -46,6 +46,15 @@ import kotlin.coroutines.resume
 
 private enum class Route { Splash, Auth, Verify, Reset, Main, Terminal, Settings }
 
+/** Jak gleboko lezy ekran. Wejscie glebiej wjezdza z prawej, powrot — z lewej. */
+private val Route.depth: Int
+    get() = when (this) {
+        Route.Splash -> 0
+        Route.Auth, Route.Main -> 1
+        Route.Verify, Route.Reset, Route.Settings -> 2
+        Route.Terminal -> 3
+    }
+
 /**
  * Ekrany z hasłem i kodem są zawsze chronione przed zrzutem ekranu, niezależnie
  * od ustawienia — tam zrzut wyniósłby poświadczenia poza telefon.
@@ -298,6 +307,8 @@ private fun CyphrApp(
     val active = chats.firstOrNull { it.id == activeId } ?: chats.first()
     val messages = active.messages
     val memory = active.memory
+    // Na ekranie zawsze nazwa CYPHR — nigdy identyfikator, ktory idzie do serwera.
+    val agentName = selectedAgent?.let { Persona.nameOf(it) }
 
     /**
      * Podmienia rozmowe o danym id i zapisuje ja pod kontem zalogowanego uzytkownika.
@@ -559,8 +570,22 @@ private fun CyphrApp(
         AnimatedContent(
             targetState = route,
             transitionSpec = {
-                (fadeIn(motionSpec(320)) + slideInVertically(motionSpec(420)) { it / 14 })
-                    .togetherWith(fadeOut(motionSpec(220)))
+                val from = initialState.depth
+                val to = targetState.depth
+                when {
+                    // Glebiej: nowy ekran wjezdza z prawej, stary lekko cofa sie w lewo.
+                    to > from && from > 0 ->
+                        (slideInHorizontally(motionSpec(380)) { it / 3 } + fadeIn(motionSpec(300)))
+                            .togetherWith(slideOutHorizontally(motionSpec(380)) { -it / 10 } + fadeOut(motionSpec(200)))
+                    // Wstecz: odwrotnie.
+                    to < from && to > 0 ->
+                        (slideInHorizontally(motionSpec(380)) { -it / 10 } + fadeIn(motionSpec(300)))
+                            .togetherWith(slideOutHorizontally(motionSpec(380)) { it / 3 } + fadeOut(motionSpec(200)))
+                    // Start, logowanie, wylogowanie: miekkie przenikanie z lekkim przyblizeniem.
+                    else ->
+                        (fadeIn(motionSpec(420)) + scaleIn(motionSpec(420), initialScale = 0.97f))
+                            .togetherWith(fadeOut(motionSpec(220)))
+                }
             },
             label = "route",
         ) { current ->
@@ -727,9 +752,8 @@ private fun CyphrApp(
                 ) { padding ->
                     Box(Modifier.padding(padding)) {
                         SettingsScreen(
-                            agentName = agents.firstOrNull { it.id == selectedAgent }?.name ?: selectedAgent,
+                            agentName = agentName,
                             onTerminal = { route = Route.Terminal },
-                            onClosed = { toast = "Zapisano adres API." },
                             onLogout = { logout() },
                         )
                     }
@@ -755,20 +779,22 @@ private fun CyphrApp(
                         AnimatedContent(
                             targetState = tab,
                             transitionSpec = {
-                                (fadeIn(motionSpec(260)) + slideInVertically(motionSpec(320)) { it / 18 })
-                                    .togetherWith(fadeOut(motionSpec(180)))
+                                // Zakladka przesuwa sie w strone, w ktora idziesz po dolnym pasku.
+                                val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                                (fadeIn(motionSpec(260)) + slideInHorizontally(motionSpec(320)) { dir * it / 10 })
+                                    .togetherWith(fadeOut(motionSpec(160)) + slideOutHorizontally(motionSpec(320)) { -dir * it / 14 })
                             },
                             label = "tab",
                         ) { current ->
                             when (current) {
                                 Tab.Chat -> ChatTab(
                                     messages = messages,
-                                    // Klientowi pokazujemy nazwe, nie identyfikator techniczny.
-                                    agent = agents.firstOrNull { it.id == selectedAgent }?.name ?: selectedAgent,
+                                    agent = agentName,
                                     thinking = thinking,
                                     lastTokens = lastTokens,
                                     memory = memory,
                                     chatTitle = active.label,
+                                    chatId = active.id,
                                     onOpenChats = { showChats = true },
                                     onPickAgent = { tab = Tab.Agents },
                                     onSend = { text ->
@@ -846,10 +872,12 @@ private fun CyphrApp(
                                                     user = u
                                                 } catch (_: Exception) {}
                                             } catch (e: Exception) {
-                                                // Gdy pada sam dostawca, wina nie lezy po stronie
-                                                // aplikacji ani salda — drugi model zwykle dziala.
+                                                // Chwilowa awaria modelu nie jest wina aplikacji ani salda —
+                                                // drugi model zwykle dziala. Wlasny tekst, bo serwerowy
+                                                // mowi o tym, co stoi za modelem.
                                                 toast = if (e is ApiError && e.code == "upstream_error") {
-                                                    "${e.message} Spróbuj drugiego modelu w zakładce Agenci."
+                                                    "${Persona.nameOf(model)} chwilowo nie odpowiada. " +
+                                                        "Spróbuj ponownie albo wybierz drugi model w zakładce Agenci."
                                                 } else {
                                                     e.message
                                                 }
@@ -879,7 +907,7 @@ private fun CyphrApp(
 
                                 Tab.Browser -> BrowserTab(
                                     holder = browser,
-                                    agent = selectedAgent,
+                                    agent = agentName,
                                     asking = asking,
                                     answer = answer,
                                     onCloseAnswer = { answer = null },

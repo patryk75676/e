@@ -11,8 +11,8 @@ android {
         applicationId = "pl.cyphr.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
 
         buildConfigField("String", "BASE_URL", "\"${project.findProperty("cyphr.baseUrl")}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${project.findProperty("cyphr.googleWebClientId")}\"")
@@ -78,7 +78,6 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.biometric:biometric:1.1.0")
-    implementation("com.github.mwiede:jsch:0.2.18")
 
     testImplementation("junit:junit:4.13.2")
     // android.jar w testach ma tylko zaslepki JSONObject — podstawiamy prawdziwa implementacje.
