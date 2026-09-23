@@ -108,6 +108,12 @@ object Prefs {
     private val _sshUser = mutableStateOf<String>("")
     val sshUser: String get() = _sshUser.value
 
+    /** Czy aplikacja juz raz sama poprosila o zgode na sterowanie Termuxem. */
+    val termuxAsked: Boolean
+        get() = app.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("termux_asked", false)
+
+    fun setTermuxAsked() = edit { putBoolean("termux_asked", true) }
+
     fun sshPassword(): String? = SecureStore.get("ssh_pass")
 
     val sshReady: Boolean get() = sshHost.isNotBlank() && sshUser.isNotBlank() && !sshPassword().isNullOrBlank()

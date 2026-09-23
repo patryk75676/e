@@ -34,14 +34,30 @@ object AgentTools {
     /** Dopisek do instrukcji systemowej, wlaczany tylko gdy uzytkownik na to pozwolil. */
     fun instructions(where: String): String = """
 
-Masz dostęp do terminala ($where). Gdy potrzebujesz czegoś sprawdzić lub wykonać,
-napisz w osobnej linii dokładnie:
+Masz dostęp do terminala: $where
+Gdy potrzebujesz czegoś sprawdzić lub wykonać, napisz w osobnej linii dokładnie:
 !RUN: <polecenie>
 Jedno polecenie naraz, bez dodatkowego formatowania i bez znaczników kodu.
 Wynik dostaniesz w następnej wiadomości i wtedy kontynuuj.
 Nie zgaduj wyników — jeśli czegoś nie wiesz, sprawdź poleceniem.
+Polecenie ma ${COMMAND_TIMEOUT_SECONDS} s i nie dostaje nic na wejściu — nie uruchamiaj
+programów interaktywnych ani działających bez końca (ping bez -c, top, edytory).
 Użytkownik potwierdza każde polecenie i może odmówić.
     """.trimIndent()
+
+    /**
+     * Opis terminala dla modelu. Dokladny opis tego, co jest dostepne, oszczedza
+     * nieudanych polecen (np. apt w powloce Androida albo sudo w Termuksie).
+     */
+    suspend fun target(context: Context): String =
+        if (Termux.ready(context)) {
+            "Termux — Linux na Androidzie: bash, pkg install <pakiet>, python, git, curl i to, " +
+                "co użytkownik doinstalował. Katalog domowy ~ to ${Termux.HOME}. " +
+                "Nie ma sudo ani roota — pkg działa bez nich."
+        } else {
+            "powłoka Androida (toybox) w piaskownicy aplikacji: ls, cat, ps, df, getprop, ping -c 3 itp. " +
+                "Nie ma apt, pkg, pythona ani roota."
+        }
 
     /** Wyciaga pierwsze zadane polecenie albo null, gdy model o zadne nie prosi. */
     fun requestedCommand(reply: String): String? =
@@ -50,10 +66,6 @@ Użytkownik potwierdza każde polecenie i może odmówić.
     /** Odpowiedz bez linii z poleceniem — to pokazujemy w dymku rozmowy. */
     fun withoutCall(reply: String): String =
         GAP.replace(EMPTY_FENCE.replace(CALL.replace(reply, ""), ""), "\n\n").trim()
-
-    /** Gdzie poleci polecenie przy obecnych ustawieniach. */
-    suspend fun target(context: Context): String =
-        if (Termux.check(context) == Termux.State.Ready) "Termux" else "powłoka Androida"
 
     /** Tyle najdluzej czeka polecenie zlecone przez model, zanim je przerwiemy. */
     const val COMMAND_TIMEOUT_SECONDS = 30L
@@ -64,10 +76,14 @@ Użytkownik potwierdza każde polecenie i może odmówić.
      * Kazde polecenie ma limit czasu: bez niego `ping` albo `top` wieszaly czat.
      */
     suspend fun execute(context: Context, command: String): String = withContext(Dispatchers.IO) {
-        val raw = if (Termux.check(context) == Termux.State.Ready) {
+        val raw = if (Termux.ready(context)) {
             val r = Termux.run(context, command, timeoutMs = COMMAND_TIMEOUT_SECONDS * 1000)
-            listOf(r.stdout, r.stderr).filter { it.isNotBlank() }.joinToString("\n").ifBlank {
-                "(brak wyniku, kod ${r.exitCode})"
+            buildString {
+                append(listOf(r.stdout, r.stderr).filter { it.isNotBlank() }.joinToString("\n"))
+                // Blad po stronie Termuxa (np. zablokowane polecenia z zewnatrz) — model ma go zobaczyc.
+                r.errMsg?.let { if (isNotEmpty()) append("\n"); append("Termux: ").append(it) }
+                if (r.truncated) append("\n(Termux obciął początek wyniku)")
+                if (isEmpty()) append("(brak wyniku, kod ${r.exitCode})")
             }
         } else {
             try {

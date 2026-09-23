@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -50,6 +51,10 @@ fun TerminalTab() {
 
     var mode by remember { mutableStateOf(if (Prefs.sshReady) Mode.Ssh else Mode.Local) }
     var cwd by remember { mutableStateOf(home) }
+    // Termux uruchamia kazde polecenie osobno, wiec katalog pamietamy tutaj.
+    var termuxCwd by remember { mutableStateOf(Termux.HOME) }
+    // Ile sekund dziala biezace polecenie — przy dlugich (pkg install) widac, ze cos sie dzieje.
+    var elapsed by remember { mutableStateOf(0) }
     var lines by remember { mutableStateOf(listOf("CYPHR terminal. Wpisz help.")) }
     var input by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
@@ -107,6 +112,17 @@ fun TerminalTab() {
 
     LaunchedEffect(mode) { if (mode == Mode.Ssh && sshState == "rozłączony") connectSsh() }
 
+    LaunchedEffect(running) {
+        elapsed = 0
+        if (running) {
+            val start = System.currentTimeMillis()
+            while (true) {
+                delay(1000)
+                elapsed = ((System.currentTimeMillis() - start) / 1000).toInt()
+            }
+        }
+    }
+
     fun executeLocal(command: String) {
         job = scope.launch {
             running = true
@@ -152,10 +168,32 @@ fun TerminalTab() {
         job = scope.launch {
             running = true
             try {
-                val r = Termux.run(context, command, timeoutMs = TERMUX_MANUAL_TIMEOUT_MS)
+                val r = Termux.run(context, command, workdir = termuxCwd, timeoutMs = TERMUX_MANUAL_TIMEOUT_MS)
                 r.stdout.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
                 r.stderr.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
-                if (r.exitCode != 0) push("[wyjście ${r.exitCode}]")
+                // Wlasny komunikat Termuxa mowi, co jest nie tak — wczesniej ginal.
+                r.errMsg?.let { push("Termux: $it") }
+                if (r.failure != null && r.failure != Termux.Failure.NoReply) push("Wpisz 'termux' — wypiszę, jak to naprawić.")
+                if (r.truncated) push("(Termux obciął początek wyniku — oddaje najwyżej ok. 100 KB)")
+                if (r.failure == null && r.exitCode != 0) push("[wyjście ${r.exitCode}]")
+            } finally {
+                running = false
+            }
+        }
+    }
+
+    /** `cd` w Termuksie: sprawdzamy katalog u niego i zapamietujemy pelna sciezke. */
+    fun changeTermuxDir(target: String) {
+        job = scope.launch {
+            running = true
+            try {
+                val r = Termux.run(context, "cd -- ${Termux.quote(target)} && pwd", workdir = termuxCwd, timeoutMs = 15_000)
+                val path = r.stdout.trim().lines().lastOrNull()?.trim()
+                if (r.failure == null && r.exitCode == 0 && path != null && path.startsWith("/")) {
+                    termuxCwd = path
+                } else {
+                    push(r.errMsg ?: r.stderr.trim().ifBlank { "cd: nie ma katalogu: $target" })
+                }
             } finally {
                 running = false
             }
@@ -208,9 +246,11 @@ fun TerminalTab() {
                             "Tryb SSH: pełna powłoka serwera. Działa apt, git, nano i cała reszta.\n" +
                                 "clear czyści ekran, przełącznik u góry zmienia tryb."
                         Mode.Termux ->
-                            "Tryb Termux: polecenia idą do zainstalowanego Termuxa.\n" +
-                                "Masz jego apt, pkg, python, git — wszystko co tam zainstalujesz.\n" +
-                                "Wpisz 'termux' jeśli coś nie działa, wypiszę jak to ustawić."
+                            "Tryb Termux: polecenia idą do zainstalowanego Termuksa.\n" +
+                                "Masz jego pkg, pythona, gita — wszystko, co tam zainstalujesz.\n" +
+                                "cd <katalog> działa i jest pamiętany, ~ to katalog domowy Termuksa.\n" +
+                                "Wynik pojawia się po zakończeniu polecenia; Stop przestaje czekać.\n" +
+                                "Wpisz 'termux', jeśli coś nie działa — wypiszę, jak to ustawić."
                         Mode.Local ->
                             "Tryb lokalny: polecenia systemu Androida (ls, cat, ps, ping, df, getprop).\n" +
                                 "cd <katalog> zmienia katalog, edit <plik> otwiera edytor, clear czyści ekran.\n" +
@@ -224,25 +264,30 @@ fun TerminalTab() {
             command == "termux" -> {
                 push(
                     if (Termux.isInstalled(context))
-                        "Termux jest zainstalowany.\n\n" +
-                            "Jeśli polecenia nie przechodzą, brakuje zgody na sterowanie z zewnątrz:\n" +
-                            "1. Otwórz Termux\n" +
-                            "2. mkdir -p ~/.termux\n" +
-                            "3. echo 'allow-external-apps=true' >> ~/.termux/termux.properties\n" +
-                            "4. termux-reload-settings\n" +
-                            "5. Wróć tutaj i spróbuj ponownie\n\n" +
-                            "Bez tego Termux odrzuca polecenia z innych aplikacji — to jego zabezpieczenie."
+                        "Termux jest zainstalowany. Dokładny stan i naprawę krok po kroku masz w " +
+                            "Ustawienia → Terminal — Termux.\n\n" +
+                            "Najczęstsze przyczyny, gdy polecenia nie przechodzą:\n" +
+                            "1. Termux blokuje polecenia z innych aplikacji. Wklej mu raz:\n" +
+                            "   ${Termux.SETUP_COMMAND}\n" +
+                            "2. CYPHR nie ma zgody na sterowanie Termuksem (Ustawienia → Terminal — Termux).\n" +
+                            "3. Termux nigdy nie był otwierany — otwórz go raz i poczekaj na koniec instalacji.\n" +
+                            "4. Android usypia Termuksa — wyłącz mu optymalizację baterii.\n" +
+                            "5. Wersja z Google Play jest za stara — potrzebna z F-Droid (0.109 lub nowsza)."
                     else
                         "Termux nie jest zainstalowany.\n\n" +
                             "Pobierz go z F-Droid: ${Termux.PLAY_URL}\n" +
-                            "Wersja z Google Play jest porzucona i nie działa — musi być z F-Droid albo GitHuba.\n\n" +
-                            "Po instalacji otwórz Termux i wykonaj:\n" +
-                            "  pkg update && pkg upgrade\n" +
-                            "  mkdir -p ~/.termux\n" +
-                            "  echo 'allow-external-apps=true' >> ~/.termux/termux.properties\n" +
-                            "  termux-reload-settings\n\n" +
+                            "Stara wersja z Google Play nie odsyła wyników — musi być z F-Droid albo GitHuba.\n\n" +
+                            "Po instalacji otwórz Termux, poczekaj na koniec instalacji i wklej:\n" +
+                            "  ${Termux.SETUP_COMMAND}\n\n" +
                             "Potem wróć tutaj i przełącz tryb na Termux.",
                 )
+                return
+            }
+            mode == Mode.Termux && (command == "cd" || command.startsWith("cd ")) &&
+                Termux.cdTarget(command.removePrefix("cd")) != null -> {
+                if (running) { push("Poprzednie polecenie jeszcze działa. Dotknij Stop, żeby je przerwać."); return }
+                if (!Termux.isInstalled(context)) { push("Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję."); return }
+                changeTermuxDir(Termux.cdTarget(command.removePrefix("cd"))!!)
                 return
             }
             mode == Mode.Local && command.startsWith("edit ") -> {
@@ -267,9 +312,14 @@ fun TerminalTab() {
                 editing = file to text
                 return
             }
-            mode == Mode.Local && command.startsWith("cd ") -> {
-                val target = command.removePrefix("cd ").trim()
-                val next = if (target.startsWith("/")) File(target) else File(cwd, target)
+            mode == Mode.Local && (command == "cd" || command.startsWith("cd ")) -> {
+                val target = command.removePrefix("cd").trim()
+                val next = when {
+                    target.isEmpty() || target == "~" -> home
+                    target.startsWith("~/") -> File(home, target.removePrefix("~/"))
+                    target.startsWith("/") -> File(target)
+                    else -> File(cwd, target)
+                }
                 if (next.isDirectory) cwd = next.canonicalFile else push("cd: nie ma katalogu: $target")
                 return
             }
@@ -285,6 +335,7 @@ fun TerminalTab() {
             what = "$ $command",
             detail = if (risky) "Może skasować albo nadpisać dane. Tego pytania nie da się wyłączyć."
             else if (mode == Mode.Ssh) "Serwer: ${Prefs.sshUser}@${Prefs.sshHost}"
+            else if (mode == Mode.Termux) "Termux, katalog ${Termux.shortPath(termuxCwd)}"
             else "Katalog: ${cwd.absolutePath}",
             allowAlways = !risky,
             onAllowOnce = { execute(command); pending = null },
@@ -358,9 +409,9 @@ fun TerminalTab() {
         Text(
             when (mode) {
                 Mode.Ssh -> "${Prefs.sshUser}@${Prefs.sshHost}"
-                Mode.Termux -> if (Termux.isInstalled(context)) "termux:~" else "termux — nie zainstalowany"
+                Mode.Termux -> if (Termux.isInstalled(context)) "termux:${Termux.shortPath(termuxCwd)}" else "termux — nie zainstalowany"
                 Mode.Local -> cwd.absolutePath
-            },
+            } + if (running && mode != Mode.Ssh && elapsed >= 2) "   ·  działa $elapsed s" else "",
             color = Mist, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )

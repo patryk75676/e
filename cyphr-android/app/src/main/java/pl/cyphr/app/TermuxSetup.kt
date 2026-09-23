@@ -1,5 +1,6 @@
 package pl.cyphr.app
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -23,119 +24,183 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Podlaczenie Termuxa krok po kroku. Termux domyslnie odrzuca polecenia z innych
- * aplikacji — trzeba mu raz na to pozwolic wpisem w jego wlasnej konfiguracji.
- * Status sprawdzamy realnym poleceniem, bo sama obecnosc aplikacji niczego nie dowodzi.
+ * Podlaczenie Termuxa krok po kroku. Kazdy stan ma wlasna, konkretna instrukcje —
+ * wczesniej wszystko, co nie dzialalo, wygladalo jak „brak zgody”, nawet gdy Termux
+ * byl za stary, milczal albo sam zglaszal blad.
  */
 @Composable
 fun TermuxSetup() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var state by remember { mutableStateOf<Termux.State?>(null) }
+    var status by remember { mutableStateOf<Termux.Status?>(null) }
     var testing by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
-    var granted by remember { mutableStateOf(Termux.hasPermission(context)) }
-
-    // Termux oznacza swoje uprawnienie jako niebezpieczne, wiec sama deklaracja
-    // w manifescie nie wystarczy — system musi o nie spytac uzytkownika.
-    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        granted = ok
-    }
+    // Zgoda odrzucona na stale — system nie pokaze juz okna, zostaja ustawienia aplikacji.
+    var deniedForGood by remember { mutableStateOf(false) }
 
     fun test() {
         testing = true
-        granted = Termux.hasPermission(context)
         scope.launch {
             // Przycisk ma sprawdzic naprawde, a nie oddac wynik zapamietany przez czat.
-            state = Termux.check(context, maxAgeMs = 0)
+            status = Termux.check(context, maxAgeMs = 0)
             testing = false
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (Termux.isInstalled(context) && !Termux.hasPermission(context)) {
-            ask.launch(Termux.PERMISSION)
-        }
+    // Termux oznacza swoje uprawnienie jako niebezpieczne, wiec sama deklaracja
+    // w manifescie nie wystarczy — system musi o nie spytac uzytkownika.
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        deniedForGood = !ok && (context as? Activity)?.shouldShowRequestPermissionRationale(Termux.PERMISSION) == false
         test()
+    }
+
+    LaunchedEffect(Unit) {
+        // Sami pytamy tylko raz. Wczesniej okno systemowe wyskakiwalo przy kazdym
+        // wejsciu w Ustawienia, dopoki ktos sie nie zgodzil.
+        if (Termux.isInstalled(context) && !Termux.hasPermission(context) && !Prefs.termuxAsked) {
+            Prefs.setTermuxAsked()
+            ask.launch(Termux.PERMISSION)
+        } else {
+            test()
+        }
     }
     LaunchedEffect(copied) { if (copied) { delay(2000); copied = false } }
 
+    val state = status?.state
     val badge = when (state) {
-        Termux.State.Ready -> "Połączony" to Paper
-        Termux.State.NoPermission -> "Brak zgody" to Mist
-        Termux.State.NotInstalled -> "Nie zainstalowany" to Mist
-        null -> "Sprawdzam…" to Mist
+        null -> "Sprawdzam…"
+        Termux.State.Ready -> "Połączony"
+        Termux.State.NotInstalled -> "Nie zainstalowany"
+        Termux.State.TooOld -> "Za stara wersja"
+        Termux.State.NoPermission -> "Brak zgody"
+        Termux.State.ExternalAppsBlocked -> "Blokuje polecenia"
+        Termux.State.NoReply -> "Nie odpowiada"
+        Termux.State.Failed -> "Błąd"
     }
+    val good = state == Termux.State.Ready
 
     Row(
         Modifier.fillMaxWidth().padding(bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text("Termux", color = Paper, fontWeight = FontWeight.Bold)
+        Column {
+            Text("Termux", color = Paper, fontWeight = FontWeight.Bold)
+            status?.version?.let { Text("wersja $it", color = Mist, fontSize = 12.sp) }
+        }
         Box(
             Modifier
                 .clip(RoundedCornerShape(50))
-                .background(if (state == Termux.State.Ready) Paper else Ink)
-                .border(1.5.dp, if (state == Termux.State.Ready) Paper else Line, RoundedCornerShape(50))
+                .background(if (good) Paper else Ink)
+                .border(1.5.dp, if (good) Paper else Line, RoundedCornerShape(50))
                 .padding(horizontal = 12.dp, vertical = 5.dp),
         ) {
-            Text(
-                badge.first,
-                color = if (state == Termux.State.Ready) Ink else badge.second,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Text(badge, color = if (good) Ink else Mist, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+
+    @Composable
+    fun SetupCommand(intro: String) {
+        Lead(intro)
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.5.dp, Line, RoundedCornerShape(12.dp))
+                .padding(12.dp),
+        ) {
+            Text(Termux.SETUP_COMMAND, color = Paper, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        }
+        Spacer(Modifier.height(10.dp))
+        GhostButton(if (copied) "Skopiowano — wklej w Termuksie" else "Kopiuj polecenie") {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("termux", Termux.SETUP_COMMAND))
+            copied = true
+        }
+        Spacer(Modifier.height(8.dp))
+        Lead("Można je wkleić kilka razy — niczego nie zdubluje.")
+    }
+
+    @Composable
+    fun OpenTermux() {
+        Termux.launchIntent(context)?.let { intent ->
+            Spacer(Modifier.height(8.dp))
+            GhostButton("Otwórz Termux") { context.startActivity(intent) }
         }
     }
 
     when (state) {
+        null -> Unit
+
         Termux.State.Ready ->
-            Lead("Polecenia z terminala CYPHR lecą do Termuxa. Masz tam swój apt, pythona i git.")
+            Lead("Polecenia z terminala CYPHR i od modelu idą do Termuksa. Masz tam swój pkg, pythona i gita.")
 
         Termux.State.NotInstalled -> {
             Lead(
-                "Termux to osobna aplikacja. Musi pochodzić z F-Droid — wersja z Google Play " +
-                    "jest porzucona i nie ma potrzebnego API.",
+                "Termux to osobna aplikacja. Musi pochodzić z F-Droid albo GitHuba — stara wersja " +
+                    "z Google Play nie odsyła wyników poleceń.",
             )
             Spacer(Modifier.height(12.dp))
             GhostButton("Pobierz Termux z F-Droid") { context.startActivity(Termux.storeIntent()) }
         }
 
-        else -> {
-            if (!granted) {
-                Lead("Aplikacja nie ma jeszcze zgody na sterowanie Termuxem.")
+        Termux.State.TooOld -> {
+            Lead(
+                "Masz Termuksa ${status?.version.orEmpty()} — to stara wersja (zwykle z Google Play), " +
+                    "która nie odsyła wyników poleceń. Zainstaluj aktualną z F-Droid. Najpierw odinstaluj " +
+                    "obecną: Android nie podmieni aplikacji podpisanej innym kluczem, a dane Termuksa przepadną.",
+            )
+            Spacer(Modifier.height(12.dp))
+            GhostButton("Pobierz Termux z F-Droid") { context.startActivity(Termux.storeIntent()) }
+        }
+
+        Termux.State.NoPermission -> {
+            if (deniedForGood) {
+                Lead(
+                    "Zgodę odrzucono na stałe, więc system nie pokaże już okna. Włącz ją ręcznie: " +
+                        "Uprawnienia → Dodatkowe uprawnienia → Uruchamianie poleceń w środowisku Termux.",
+                )
+                Spacer(Modifier.height(10.dp))
+                GhostButton("Otwórz ustawienia CYPHR") { context.startActivity(Termux.ownSettingsIntent(context)) }
+            } else {
+                Lead("CYPHR nie ma jeszcze zgody na zlecanie poleceń Termuksowi.")
                 Spacer(Modifier.height(10.dp))
                 GhostButton("Poproś o uprawnienie") { ask.launch(Termux.PERMISSION) }
-                Spacer(Modifier.height(14.dp))
             }
-            Lead("Termux musi też raz wpuścić polecenia z zewnątrz. Wklej mu to:")
-            Spacer(Modifier.height(12.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(1.5.dp, Line, RoundedCornerShape(12.dp))
-                    .padding(12.dp),
-            ) {
-                Text(
-                    Termux.SETUP_COMMAND,
-                    color = Paper,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            GhostButton(if (copied) "Skopiowano — wklej w Termuxie" else "Kopiuj polecenie") {
-                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("termux", Termux.SETUP_COMMAND))
-                copied = true
-            }
+        }
+
+        Termux.State.ExternalAppsBlocked -> {
+            SetupCommand("Termux odrzuca polecenia z innych aplikacji. Wklej mu raz to polecenie:")
+            OpenTermux()
+        }
+
+        Termux.State.NoReply -> {
+            Lead(
+                "Termux nie odpowiedział. Zwykle pomaga:\n" +
+                    "1. Otwórz Termux i poczekaj, aż skończy pierwsze uruchomienie.\n" +
+                    "2. Wyłącz dla niego optymalizację baterii — Android usypia go w tle.\n" +
+                    "3. Wklej polecenie poniżej, jeśli jeszcze tego nie zrobiłeś.",
+            )
+            OpenTermux()
             Spacer(Modifier.height(8.dp))
-            Termux.launchIntent(context)?.let { intent ->
-                GhostButton("Otwórz Termux") { context.startActivity(intent) }
-                Spacer(Modifier.height(8.dp))
-            }
+            GhostButton("Ustawienia Termuksa (bateria)") { context.startActivity(Termux.termuxSettingsIntent()) }
+            Spacer(Modifier.height(14.dp))
+            SetupCommand("Polecenie dla Termuksa:")
+        }
+
+        Termux.State.Failed -> {
+            Lead("Termux zgłosił błąd:")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                status?.detail ?: "brak szczegółów",
+                color = Paper,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            Spacer(Modifier.height(14.dp))
+            SetupCommand("Jeśli to pierwsze podłączenie, wklej Termuksowi:")
+            OpenTermux()
         }
     }
 
