@@ -390,6 +390,14 @@ private fun CyphrApp(
     }
     // Za duzy plik, zly typ, limit zalacznikow — krotko na dole ekranu.
     LaunchedEffect(Unit) { Composer.problems.collect { toast = it } }
+    // Termux do wymiany — sprawdzane po wejsciu na glowny ekran, bez wysylania mu polecen.
+    var termuxOld by remember { mutableStateOf<String?>(null) }
+    var termuxSheet by remember { mutableStateOf(false) }
+    LaunchedEffect(user?.id, route) {
+        if (user == null || route != Route.Main || termuxOld != null || termuxSheet) return@LaunchedEffect
+        val version = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Termux.needsReplacement(context) }
+        if (version != null && version != Prefs.termuxPrompted) termuxOld = version
+    }
     // „Udostepnij → CYPHR” przy otwartej aplikacji: prosto do czatu, gdzie czeka zalacznik.
     LaunchedEffect(Unit) {
         Composer.arrivals.collect {
@@ -999,6 +1007,37 @@ private fun CyphrApp(
                 onDismiss = { showChats = false },
             )
         }
+
+        // Termux, ktory nie moze wspolpracowac z CYPHR (np. z Google Play): propozycja wymiany
+        // przy wejsciu do aplikacji — raz dla danej wersji. „Wymien teraz” otwiera ekran
+        // Termuksa z dwoma krokami: odinstalowanie starego i instalacja wlasciwego.
+        termuxOld?.let { version ->
+            AlertDialog(
+                onDismissRequest = { Prefs.setTermuxPrompted(version); termuxOld = null },
+                containerColor = Raise,
+                title = { Text("Termux do wymiany", color = Paper, fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        (if (Termux.isPlayBuild(version)) "Masz Termuksa z Google Play — ta wersja nie przyjmuje poleceń od innych aplikacji"
+                        else "Twój Termux jest za stary albo nie przyjmuje poleceń od innych aplikacji") +
+                            ", więc CYPHR nie może z niego korzystać. CYPHR wymieni go na Termuksa z F-Droid: " +
+                            "odinstalujesz obecny, a właściwy sam się pobierze i sprawdzi.",
+                        color = Mist,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { Prefs.setTermuxPrompted(version); termuxOld = null; termuxSheet = true }) {
+                        Text("Wymień teraz", color = Paper, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { Prefs.setTermuxPrompted(version); termuxOld = null }) {
+                        Text("Nie teraz", color = Mist)
+                    }
+                },
+            )
+        }
+        if (termuxSheet) TermuxSheet(onDismiss = { termuxSheet = false })
 
         // Zakup: karta 3D i potwierdzenie
         buying?.let { pack ->

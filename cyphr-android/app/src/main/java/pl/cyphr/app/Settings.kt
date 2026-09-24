@@ -161,6 +161,10 @@ object Prefs {
     fun setLeft(now: Long, chatId: String) = edit { putLong("last_seen", now).putString("last_chat", chatId) }
     fun setUnseenChat(chatId: String?) = edit { if (chatId == null) remove("unseen_chat") else putString("unseen_chat", chatId) }
 
+    /** Wersja Termuksa, o ktorego wymiane juz pytalismy — „Nie teraz” dotyczy tej wersji. */
+    val termuxPrompted: String? get() = sp.getString("termux_prompted", null)
+    fun setTermuxPrompted(version: String) = edit { putString("termux_prompted", version) }
+
     fun setSystemPrompt(value: String) {
         _systemPrompt.value = value.trim().ifBlank { DEFAULT_PROMPT }
         edit { putString("system_prompt", _systemPrompt.value) }

@@ -241,12 +241,12 @@ fun TerminalTab() {
                     if (Termux.isInstalled(context) && !Termux.acceptsCommands(context))
                         "Ten Termux jest z Google Play. To osobna wersja, która nie przyjmuje poleceń od innych " +
                             "aplikacji — nie ma w niej zgody na sterowanie z zewnątrz, więc nie da się jej włączyć.\n\n" +
-                            "Co zrobić:\n" +
-                            "1. Odinstaluj obecnego Termuksa (jego pliki przepadną — przenieś wcześniej, co ważne).\n" +
-                            "2. Zainstaluj Termux z F-Droid: ${Termux.PLAY_URL}\n" +
-                            "3. Otwórz go, poczekaj na koniec instalacji i wklej:\n" +
+                            "CYPHR wymieni go sam: Ustawienia → Terminal → „Odinstaluj Termux”, a potem\n" +
+                            "„Zainstaluj pobrany Termux” — właściwy pobiera się z F-Droid w tle i jest sprawdzany.\n" +
+                            "Pliki w obecnym Termuksie przepadną — przenieś wcześniej, co ważne.\n\n" +
+                            "Potem otwórz Termux, poczekaj na koniec instalacji i wklej:\n" +
                             "   ${Termux.SETUP_COMMAND}\n" +
-                            "4. Wróć tutaj — o zgodę CYPHR zapyta sam przy pierwszym poleceniu."
+                            "O zgodę CYPHR zapyta sam przy pierwszym poleceniu."
                     else if (Termux.isInstalled(context))
                         "Termux jest zainstalowany. Dokładny stan i naprawę krok po kroku masz w " +
                             "Ustawienia → Terminal.\n\n" +
@@ -260,8 +260,9 @@ fun TerminalTab() {
                             "5. Termux z Google Play nie przyjmuje poleceń od innych aplikacji — potrzebny z F-Droid."
                     else
                         "Termux nie jest zainstalowany.\n\n" +
-                            "Pobierz go z F-Droid: ${Termux.PLAY_URL}\n" +
-                            "Wersja z Google Play nie przyjmuje poleceń od innych aplikacji — musi być z F-Droid albo GitHuba.\n\n" +
+                            "Zainstalujesz go jednym dotknięciem: Ustawienia → Terminal → „Zainstaluj Termux”.\n" +
+                            "CYPHR pobierze go z F-Droid, sprawdzi, że to oryginał, i otworzy instalator Androida.\n" +
+                            "Wersja z Google Play nie przyjmuje poleceń od innych aplikacji — ta z F-Droid tak.\n\n" +
                             "Po instalacji otwórz Termux, poczekaj na koniec instalacji i wklej:\n" +
                             "  ${Termux.SETUP_COMMAND}\n\n" +
                             "Potem wróć tutaj i przełącz tryb na Termux.",

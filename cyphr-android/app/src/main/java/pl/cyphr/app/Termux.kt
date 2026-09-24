@@ -102,6 +102,17 @@ object Termux {
     /** Czy to Termux z Google Play — po nazwie wersji, ktora nadaje mu jego sklep. */
     fun isPlayBuild(versionName: String?): Boolean = versionName?.trim()?.startsWith("googleplay") == true
 
+    /**
+     * Wersja zainstalowanego Termuksa, ktory nie moze wspolpracowac z CYPHR (z Google Play
+     * albo za stary), albo null, gdy go nie ma lub jest wlasciwy. Bez wysylania polecen —
+     * wystarczy paczka i zgoda, ktora definiuje.
+     */
+    fun needsReplacement(context: Context): String? {
+        val info = packageInfo(context) ?: return null
+        val broken = !acceptsCommands(context) || installedSupportsResults(context) == false
+        return if (broken) info.versionName ?: "?" else null
+    }
+
     private fun packageInfo(context: Context) = try {
         context.packageManager.getPackageInfo(PACKAGE, 0)
     } catch (e: PackageManager.NameNotFoundException) {

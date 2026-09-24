@@ -63,7 +63,11 @@ Terminal ma dwa tryby:
   krok po kroku pokazuje Ustawienia → Terminal.
 
 Termux z Google Play (wersje `googleplay.*`) nie przyjmuje poleceń od innych aplikacji —
-nie ma w nim uprawnienia `RUN_COMMAND`. Aplikacja rozpoznaje go i prosi o Termux z F-Droid.
+nie ma w nim uprawnienia `RUN_COMMAND`. Aplikacja rozpoznaje go i przy wejściu proponuje
+wymianę. Termuksa instaluje się jednym przyciskiem (Ustawienia → Terminal): CYPHR pobiera
+oficjalny plik z F-Droid, sprawdza, że to pakiet `com.termux` podpisany kluczem F-Droid
+(SHA-256 `228fb2cf…1c42`), i otwiera instalator Androida. Wersję z Play najpierw odinstalowuje
+się systemowym oknem. Każdy krok zatwierdza użytkownik w oknie Androida.
 
 Trybu SSH już nie ma — aplikacja jest dla klientów, a starsze wersje przy pierwszym
 uruchomieniu nowej kasują zapisane dane SSH i własny adres serwera.
