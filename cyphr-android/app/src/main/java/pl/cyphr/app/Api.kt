@@ -48,18 +48,26 @@ data class User(
  * ktory przekazuje go dalej; uzytkownik widzi wylacznie nazwe CYPHR i opis.
  * Pochodzenia modeli aplikacja nigdzie nie pokazuje (patrz Persona).
  */
-val CATALOG = listOf(
-    Agent(
-        "glm-5.3-flash-uncensored",
-        "CYPHR Flash",
-        "Szybkie odpowiedzi i bardzo długa pamięć rozmowy — 262 tys. tokenów.",
-    ),
-    Agent(
-        "qwen3.8-27b-uncensored",
-        "CYPHR Pro",
-        "Staranniejsze odpowiedzi przy trudniejszych zadaniach — 131 tys. tokenów pamięci.",
-    ),
-)
+val CATALOG: List<Agent>
+    // Opisy w jezyku aplikacji, wiec lista liczy sie przy kazdym odczycie (to dwa elementy).
+    get() = listOf(
+        Agent(
+            "glm-5.3-flash-uncensored",
+            "CYPHR Flash",
+            tr(
+                "Szybkie odpowiedzi i bardzo długa pamięć rozmowy — 262 tys. tokenów.",
+                "Fast answers and a very long conversation memory — 262K tokens.",
+            ),
+        ),
+        Agent(
+            "qwen3.8-27b-uncensored",
+            "CYPHR Pro",
+            tr(
+                "Staranniejsze odpowiedzi przy trudniejszych zadaniach — 131 tys. tokenów pamięci.",
+                "More careful answers for harder tasks — 131K tokens of memory.",
+            ),
+        ),
+    )
 
 /** Model wybierany, gdy uzytkownik jeszcze zadnego nie wskazal. */
 const val DEFAULT_AGENT = "glm-5.3-flash-uncensored"
@@ -224,7 +232,7 @@ object Api {
         val response = try {
             client.newCall(builder.build()).await()
         } catch (e: IOException) {
-            throw ApiError("Brak połączenia z internetem.", "offline")
+            throw ApiError(tr("Brak połączenia z internetem.", "No internet connection."), "offline")
         }
         // use na zewnatrz: odpowiedz zamyka sie takze wtedy, gdy praca zostanie przerwana,
         // zanim zaczniemy ja czytac.
@@ -237,37 +245,68 @@ object Api {
                     // Bez tego uzytkownik widzialby tylko "Cos poszlo nie tak".
                     val fromServer = data.optString("message").ifBlank { null }?.let { Persona.scrub(it) }
                     val retryAfter = it.header("Retry-After")?.trim()?.toIntOrNull()
-                    throw ApiError(
-                        fromServer ?: explain(it.code, retryAfter),
-                        data.optString("error").ifBlank { null },
-                        it.code,
-                    )
+                    val code = data.optString("error").ifBlank { null }
+                    throw ApiError(errorMessage(code, fromServer, it.code, retryAfter), code, it.code)
                 }
                 data
             }
         }
     }
 
-    /** Cena po polsku: przecinek, dwie cyfry. */
-    private fun money(v: Double): String = String.format(java.util.Locale("pl"), "%.2f", v)
+    /** Cena z dwiema cyframi: po polsku z przecinkiem, po angielsku z kropka. */
+    private fun money(v: Double): String = String.format(appLocale, "%.2f", v)
+
+    /**
+     * Komunikat bledu dla uzytkownika. Serwer pisze po polsku — po angielsku bierzemy tekst
+     * z kodu bledu, a gdy kodu nie znamy, z samego statusu.
+     */
+    internal fun errorMessage(code: String?, fromServer: String?, status: Int, retryAfter: Int?): String =
+        if (isEn) english(code) ?: explain(status, retryAfter)
+        else fromServer ?: explain(status, retryAfter)
+
+    /** Kody bledow serwera CYPHR i jego modulow po angielsku. */
+    internal fun english(code: String?): String? = when (code) {
+        "bad_credentials" -> "Wrong email or password."
+        "bad_email" -> "Enter a valid email address."
+        "email_taken" -> "This email address is already registered."
+        "weak_password" -> "The password must be at least 8 characters."
+        "not_verified" -> "Confirm your email address first — we've sent you a code."
+        "code_invalid" -> "The code is incorrect."
+        "code_expired" -> "The code has expired. Ask for a new one."
+        "too_many" -> "Too many wrong attempts. Ask for a new code."
+        "no_account" -> "There's no such account."
+        "google_invalid" -> "Couldn't confirm your Google account."
+        "no_token" -> "Google didn't return a token."
+        "unauthorized" -> "Your session has expired. Sign in again."
+        "not_found" -> "The server doesn't know this function. Update the app."
+        "model_not_found", "model_unavailable" -> "This model isn't available right now."
+        "upstream_error" -> "The model returned an error."
+        "image_limit" -> "Today's image limit is used up. More images tomorrow."
+        "image_refused" -> "I won't create this image."
+        "image_busy" -> "Image creation is busy right now. Try again in a minute."
+        "image_failed" -> "Couldn't create the image. Try again."
+        "not_configured" -> "Images are turned off."
+        else -> null
+    }
 
     /** Zrozumiala wiadomosc dla bledu, przy ktorym serwer nie przyslal swojej. */
     internal fun explain(status: Int, retryAfter: Int?): String = when (status) {
-        401 -> "Sesja wygasła. Zaloguj się ponownie."
-        403 -> "Brak dostępu do tej funkcji."
-        404 -> "Serwer nie zna tej funkcji. Zaktualizuj aplikację."
-        408, 504 -> "Serwer nie odpowiedział na czas. Spróbuj jeszcze raz."
+        401 -> tr("Sesja wygasła. Zaloguj się ponownie.", "Your session has expired. Sign in again.")
+        402 -> tr("Za mało środków na koncie. Doładuj saldo w Sklepie.", "Your balance is too low. Top up in the Shop.")
+        403 -> tr("Brak dostępu do tej funkcji.", "You don't have access to this function.")
+        404 -> tr("Serwer nie zna tej funkcji. Zaktualizuj aplikację.", "The server doesn't know this function. Update the app.")
+        408, 504 -> tr("Serwer nie odpowiedział na czas. Spróbuj jeszcze raz.", "The server didn't answer in time. Try again.")
         // Limiter liczy zapytania, a nie bledne kody czy hasla. Dawny komunikat
         // "za duzo prob" brzmial, jakby uzytkownik sie pomylil — a wystarczyly
         // trzy zapytania pod rzad, zeby go zobaczyc.
         429 -> {
             val za = retryAfter?.let { s -> if (s >= 60) "${s / 60} min" else "$s s" }
-            if (za != null) "Za szybko pod rząd. Odczekaj $za i spróbuj ponownie."
-            else "Za szybko pod rząd. Odczekaj chwilę i spróbuj ponownie."
+            if (za != null) tr("Za szybko pod rząd. Odczekaj $za i spróbuj ponownie.", "Too many requests in a row. Wait $za and try again.")
+            else tr("Za szybko pod rząd. Odczekaj chwilę i spróbuj ponownie.", "Too many requests in a row. Wait a moment and try again.")
         }
-        502, 503 -> "Serwer się restartuje. Spróbuj za moment."
-        in 500..599 -> "Serwer ma chwilową awarię. Spróbuj za moment."
-        else -> "Coś poszło nie tak. Spróbuj ponownie."
+        502, 503 -> tr("Serwer się restartuje. Spróbuj za moment.", "The server is restarting. Try again in a moment.")
+        in 500..599 -> tr("Serwer ma chwilową awarię. Spróbuj za moment.", "The server has a temporary problem. Try again in a moment.")
+        else -> tr("Coś poszło nie tak. Spróbuj ponownie.", "Something went wrong. Try again.")
     }
 
     private fun user(o: JSONObject): User = User(
@@ -414,7 +453,7 @@ object Api {
             val price = p?.let {
                 val i = it.optDouble("input_usd_per_m", 0.0)
                 val out = it.optDouble("output_usd_per_m", 0.0)
-                if (i > 0 || out > 0) "${money(i)} / ${money(out)} $ za mln tokenów" else null
+                if (i > 0 || out > 0) tr("${money(i)} / ${money(out)} $ za mln tokenów", "${money(i)} / ${money(out)} $ per 1M tokens") else null
             }
             // Bez owned_by — to nazwa dostawcy, a tej aplikacja nigdzie nie pokazuje.
             Agent(id, o.optString("name").ifBlank { id }, "", price)
@@ -446,8 +485,12 @@ object Api {
             arr.put(
                 JSONObject().put("role", "system").put(
                     "content",
-                    "Ustalenia z wcześniejszej części tej rozmowy. Traktuj je jako znane " +
-                        "i nie wracaj do nich od zera:\n\n$it",
+                    tr(
+                        "Ustalenia z wcześniejszej części tej rozmowy. Traktuj je jako znane " +
+                            "i nie wracaj do nich od zera:\n\n$it",
+                        "What was settled earlier in this conversation. Treat it as known " +
+                            "and don't start over on it:\n\n$it",
+                    ),
                 ),
             )
         }
@@ -477,8 +520,11 @@ object Api {
         val text = when {
             content.isNotBlank() -> content
             reasoning.isNotBlank() && Persona.showable(reasoning) -> reasoning
-            reasoning.isNotBlank() -> "Model nie zdążył dokończyć odpowiedzi. Zadaj pytanie jeszcze raz."
-            else -> "Model nie zwrócił odpowiedzi."
+            reasoning.isNotBlank() -> tr(
+                "Model nie zdążył dokończyć odpowiedzi. Zadaj pytanie jeszcze raz.",
+                "The model didn't finish its answer in time. Ask again.",
+            )
+            else -> tr("Model nie zwrócił odpowiedzi.", "The model returned no answer.")
         }
         val u = r.optJSONObject("usage")
         return Reply(
@@ -524,14 +570,14 @@ object Api {
                 when {
                     a.kind == Attachment.Kind.Text -> {
                         if (isNotEmpty()) append("\n\n")
-                        append("Plik „").append(a.name).append("”")
-                        if (a.truncated) append(" (obcięty — to tylko początek)")
+                        append(tr("Plik „", "File \"")).append(a.name).append(tr("”", "\""))
+                        if (a.truncated) append(tr(" (obcięty — to tylko początek)", " (cut off — this is only the beginning)"))
                         append(":\n```\n").append(a.text).append("\n```")
                     }
                     a.kind == Attachment.Kind.Pdf && withImages -> {
                         if (isNotEmpty()) append("\n\n")
-                        append("PDF „").append(a.name).append("” — stron: ").append(a.pages)
-                        if (a.pages > a.files.size) append(", poniżej pierwsze ").append(a.files.size)
+                        append(tr("PDF „", "PDF \"")).append(a.name).append(tr("” — stron: ", "\" — pages: ")).append(a.pages)
+                        if (a.pages > a.files.size) append(tr(", poniżej pierwsze ", ", the first ")).append(a.files.size).append(tr("", " below"))
                         append(".")
                     }
                     !withImages || a.kind == Attachment.Kind.Generated -> {
@@ -543,7 +589,7 @@ object Api {
         }
         if (!withImages || !m.fromUser || m.attachments.none { it.seenAsImage }) return text
         val parts = org.json.JSONArray()
-        parts.put(JSONObject().put("type", "text").put("text", text.ifBlank { "Co jest na obrazie?" }))
+        parts.put(JSONObject().put("type", "text").put("text", text.ifBlank { tr("Co jest na obrazie?", "What's in the image?") }))
         for (a in m.attachments.filter { it.seenAsImage }) {
             for (f in a.files) {
                 val url = Attachments.dataUrl(app, f, if (a.kind == Attachment.Kind.Pdf) "image/jpeg" else a.mime) ?: continue
@@ -565,26 +611,42 @@ object Api {
         if (toFold.isEmpty()) return memory
 
         val transcript = toFold.joinToString("\n") { m ->
-            (if (m.fromUser) "Użytkownik: " else "Asystent: ") + m.text +
+            (if (m.fromUser) tr("Użytkownik: ", "User: ") else tr("Asystent: ", "Assistant: ")) + m.text +
                 m.attachments.joinToString("") { a ->
                     " [" + Attachments.describe(a) + "]" +
                         (if (a.kind == Attachment.Kind.Text) " " + a.text.take(2000) else "")
                 }
         }
         val instruction = buildString {
-            append("Zbierz z poniższego fragmentu rozmowy wyłącznie to, co przyda się dalej:\n")
-            append("— ustalone fakty i potwierdzone wyniki,\n")
-            append("— podjęte decyzje,\n")
-            append("— podejścia, które zawiodły, wraz z powodem, żeby ich nie powtarzać,\n")
-            append("— wątki otwarte, czekające na dokończenie.\n\n")
-            append("Pomiń uprzejmości, powtórzenia i dygresje bez wniosku. ")
-            append("Pisz zwięźle, w punktach, najwyżej 200 słów. Nie dopisuj niczego od siebie.\n\n")
-            if (memory.summary.isNotBlank()) {
-                append("Dotychczasowe ustalenia (scal je z nowym materiałem, nic nie gubiąc):\n")
-                append(memory.summary)
-                append("\n\n")
+            if (isEn) {
+                append("From the conversation excerpt below, collect only what will be useful later:\n")
+                append("— established facts and confirmed results,\n")
+                append("— decisions made,\n")
+                append("— approaches that failed, with the reason, so they aren't repeated,\n")
+                append("— open threads waiting to be finished.\n\n")
+                append("Skip pleasantries, repetition and digressions without a conclusion. ")
+                append("Write concisely, in bullet points, at most 200 words. Don't add anything of your own.\n\n")
+                if (memory.summary.isNotBlank()) {
+                    append("What was settled so far (merge it with the new material, losing nothing):\n")
+                    append(memory.summary)
+                    append("\n\n")
+                }
+                append("Conversation excerpt:\n")
+            } else {
+                append("Zbierz z poniższego fragmentu rozmowy wyłącznie to, co przyda się dalej:\n")
+                append("— ustalone fakty i potwierdzone wyniki,\n")
+                append("— podjęte decyzje,\n")
+                append("— podejścia, które zawiodły, wraz z powodem, żeby ich nie powtarzać,\n")
+                append("— wątki otwarte, czekające na dokończenie.\n\n")
+                append("Pomiń uprzejmości, powtórzenia i dygresje bez wniosku. ")
+                append("Pisz zwięźle, w punktach, najwyżej 200 słów. Nie dopisuj niczego od siebie.\n\n")
+                if (memory.summary.isNotBlank()) {
+                    append("Dotychczasowe ustalenia (scal je z nowym materiałem, nic nie gubiąc):\n")
+                    append(memory.summary)
+                    append("\n\n")
+                }
+                append("Fragment rozmowy:\n")
             }
-            append("Fragment rozmowy:\n")
             append(transcript)
         }
 
@@ -612,6 +674,31 @@ object Api {
     /** Uniewaznia na serwerze konkretny token, nie ruszajac biezacej sesji. */
     suspend fun revoke(sessionToken: String) {
         try { call("/logout", "POST", auth = sessionToken) } catch (_: Exception) {}
+    }
+
+    /** Szybki klient do pytan, na ktore nie warto dlugo czekac (jezyk przy starcie). */
+    private val quick by lazy {
+        client.newBuilder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * Jezyk dla adresu IP, z ktorego pyta telefon (GET /v1/geo, bez logowania): polski dla
+     * polskich adresow, angielski dla reszty. Null, gdy serwer nie umie odpowiedziec — brak
+     * modulu jezyk.js, brak sieci, serwer nie widzi adresu.
+     */
+    suspend fun geoLang(): Lang? = try {
+        quick.newCall(Request.Builder().url(base() + "/v1/geo").build()).await().use { r ->
+            if (!r.isSuccessful) null
+            else withContext(Dispatchers.IO) { Lang.of(JSONObject(r.body?.string().orEmpty()).optString("lang")) }
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
     }
 
     /**
@@ -642,13 +729,13 @@ object Api {
             auth,
         )
         val first = r.optJSONArray("images")?.optJSONObject(0)
-            ?: throw ApiError("Serwer nie oddał obrazu. Spróbuj ponownie.", "image_failed")
+            ?: throw ApiError(tr("Serwer nie oddał obrazu. Spróbuj ponownie.", "The server returned no image. Try again."), "image_failed")
         val bytes = try {
             android.util.Base64.decode(first.optString("b64"), android.util.Base64.DEFAULT)
         } catch (e: IllegalArgumentException) {
-            throw ApiError("Serwer oddał uszkodzony obraz. Spróbuj ponownie.", "image_failed")
+            throw ApiError(tr("Serwer oddał uszkodzony obraz. Spróbuj ponownie.", "The server returned a damaged image. Try again."), "image_failed")
         }
-        if (bytes.isEmpty()) throw ApiError("Serwer nie oddał obrazu. Spróbuj ponownie.", "image_failed")
+        if (bytes.isEmpty()) throw ApiError(tr("Serwer nie oddał obrazu. Spróbuj ponownie.", "The server returned no image. Try again."), "image_failed")
         return Image(bytes, first.optString("mime").ifBlank { "image/png" }, quotaOf(r))
     }
 }

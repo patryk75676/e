@@ -78,6 +78,8 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         SecureStore.init(this)
         Prefs.init(this)
+        // Jezyk od pierwszej klatki: wybrany recznie albo ostatnio ustalony po IP.
+        LangPick.apply(this)
         Api.load(this)
         ChatEngine.init(this)
         // Logowanie Google idzie wylacznie natywnym wyborem konta. Dawny powrot
@@ -141,6 +143,8 @@ class MainActivity : FragmentActivity() {
         )
         Prefs.setUnseenChat(null)
         ChatEngine.refreshImages()
+        // Po dluzszej przerwie telefon mogl zmienic siec — jezyk po IP sprawdzamy jeszcze raz.
+        if (LangPick.stale()) LangPick.refresh(this)
     }
 
     override fun onStop() {
@@ -225,7 +229,7 @@ private fun CyphrGate(activity: FragmentActivity) {
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(unlocked) { if (!unlocked) ask("Potwierdź, że to Ty") }
+    LaunchedEffect(unlocked) { if (!unlocked) ask(tr("Potwierdź, że to Ty", "Confirm it's you")) }
 
     if (unlocked) {
         // Nakladka zamiast podmiany ekranu: CyphrApp zostaje w pamieci, wiec nie
@@ -257,24 +261,24 @@ private fun CyphrGate(activity: FragmentActivity) {
         ) {
             Ghost(size = 118.dp, floating = true)
             Spacer(Modifier.height(24.dp))
-            Text("CYPHR jest zablokowany", color = Paper, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(tr("CYPHR jest zablokowany", "CYPHR is locked"), color = Paper, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Spacer(Modifier.height(10.dp))
             Lead(
-                problem ?: ready?.let { "Drugi składnik logowania: ${it.label}." }
-                    ?: "Ustaw blokadę ekranu, żeby otworzyć konto.",
+                problem ?: ready?.let { tr("Drugi składnik logowania: ${it.label}.", "Second sign-in factor: ${it.label}.") }
+                    ?: tr("Ustaw blokadę ekranu, żeby otworzyć konto.", "Set up a screen lock to open your account."),
                 center = true,
             )
             Spacer(Modifier.height(22.dp))
             Box(Modifier.width(230.dp)) {
                 if (bio is Biometrics.State.NotEnrolled) {
-                    PrimaryButton("Ustaw blokadę") { activity.startActivity(Biometrics.enrollIntent()) }
+                    PrimaryButton(tr("Ustaw blokadę", "Set up lock")) { activity.startActivity(Biometrics.enrollIntent()) }
                 } else {
-                    PrimaryButton("Odblokuj") { ask("Potwierdź, że to Ty") }
+                    PrimaryButton(tr("Odblokuj", "Unlock")) { ask(tr("Potwierdź, że to Ty", "Confirm it's you")) }
                 }
             }
             Spacer(Modifier.height(10.dp))
             Box(Modifier.width(230.dp)) {
-                GhostButton("Wyloguj się") {
+                GhostButton(tr("Wyloguj się", "Sign out")) {
                     Api.cachedUser()?.id?.let { ChatEngine.stop(it) }
                     Api.saveToken(activity, null)
                     LockClock.forget()
@@ -308,27 +312,34 @@ private fun LockRequired(
     ) {
         Ghost(size = 110.dp, floating = true)
         Spacer(Modifier.height(24.dp))
-        Text("Potrzebna blokada ekranu", color = Paper, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text(tr("Potrzebna blokada ekranu", "Screen lock needed"), color = Paper, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Spacer(Modifier.height(10.dp))
         Lead(
             when (state) {
-                Biometrics.State.None ->
-                    "To urządzenie nie potrafi potwierdzić tożsamości, a bez tego CYPHR nie otworzy konta."
-                Biometrics.State.Unavailable ->
-                    "Czytnik jest chwilowo niedostępny. Spróbuj za moment."
-                else ->
+                Biometrics.State.None -> tr(
+                    "To urządzenie nie potrafi potwierdzić tożsamości, a bez tego CYPHR nie otworzy konta.",
+                    "This device can't confirm your identity, and without that CYPHR won't open the account.",
+                )
+                Biometrics.State.Unavailable -> tr(
+                    "Czytnik jest chwilowo niedostępny. Spróbuj za moment.",
+                    "The sensor is temporarily unavailable. Try again in a moment.",
+                )
+                else -> tr(
                     "Po zalogowaniu CYPHR prosi o drugi składnik — odcisk palca, twarz albo kod ekranu. " +
-                        "Ten telefon nie ma jeszcze ustawionej blokady. Ustaw ją i wróć, logowanie ruszy samo."
+                        "Ten telefon nie ma jeszcze ustawionej blokady. Ustaw ją i wróć, logowanie ruszy samo.",
+                    "After you sign in, CYPHR asks for a second factor — fingerprint, face or screen lock code. " +
+                        "This phone has no screen lock yet. Set one up and come back — sign-in will continue by itself.",
+                )
             },
             center = true,
         )
         Spacer(Modifier.height(22.dp))
         Box(Modifier.width(250.dp)) {
-            if (state is Biometrics.State.NotEnrolled) PrimaryButton("Ustaw blokadę", onClick = onSetUp)
-            else PrimaryButton("Spróbuj ponownie", onClick = onRetry)
+            if (state is Biometrics.State.NotEnrolled) PrimaryButton(tr("Ustaw blokadę", "Set up lock"), onClick = onSetUp)
+            else PrimaryButton(tr("Spróbuj ponownie", "Try again"), onClick = onRetry)
         }
         Spacer(Modifier.height(10.dp))
-        Box(Modifier.width(250.dp)) { GhostButton("Anuluj logowanie", onClick = onCancel) }
+        Box(Modifier.width(250.dp)) { GhostButton(tr("Anuluj logowanie", "Cancel sign-in"), onClick = onCancel) }
     }
 }
 
@@ -466,12 +477,15 @@ private fun CyphrApp(
     /** Nowe logowanie przechodzi przez drugi składnik. Wznowienie sesji nie, bo brama już pytała. */
     fun enterApp(u: User) {
         requireSecondFactor(
-            "Potwierdź logowanie",
+            tr("Potwierdź logowanie", "Confirm sign-in"),
             { accounts = Accounts.all(); open(u) },
             { reason ->
                 abandonLogin(u)
                 route = Route.Auth
-                error = reason ?: "Logowanie przerwane — bez potwierdzenia tożsamości konto się nie otworzy."
+                error = reason ?: tr(
+                    "Logowanie przerwane — bez potwierdzenia tożsamości konto się nie otworzy.",
+                    "Sign-in stopped — the account won't open without confirming your identity.",
+                )
             },
         )
     }
@@ -479,7 +493,7 @@ private fun CyphrApp(
     /** Wejscie na zapamietane konto to tez logowanie — z drugim skladnikiem. */
     fun switchTo(acc: Account, onRefused: () -> Unit = {}) {
         requireSecondFactor(
-            "Wejdź na ${acc.email}",
+            tr("Wejdź na ${acc.email}", "Open ${acc.email}"),
             {
                 scope.launch {
                     Api.useAccount(context, acc)
@@ -553,7 +567,7 @@ private fun CyphrApp(
             busy = true
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
-                val idToken = account.idToken ?: throw ApiError("Google nie zwrócił tokenu.")
+                val idToken = account.idToken ?: throw ApiError(tr("Google nie zwrócił tokenu.", "Google didn't return a token."))
                 Api.google(context, idToken)?.let { enterApp(it) }
             } catch (e: ApiException) {
                 error = when (e.statusCode) {
@@ -561,7 +575,7 @@ private fun CyphrApp(
                     // Zamiast ogolnej porady pokazujemy wartosci odczytane z tej
                     // konkretnej paczki — to je Google porownuje z konsola, wiec
                     // da sie je zestawic pole po polu bez zgadywania.
-                    CommonStatusCodes.DEVELOPER_ERROR ->
+                    CommonStatusCodes.DEVELOPER_ERROR -> tr(
                         "Kod 10: Google nie dopasował aplikacji do konsoli.\n\n" +
                             "W projekcie ${BuildConfig.GOOGLE_WEB_CLIENT_ID.substringBefore('-')} " +
                             "muszą być dwa klienty OAuth:\n\n" +
@@ -569,12 +583,27 @@ private fun CyphrApp(
                             "Aplikacja internetowa — to jej identyfikator wysyła aplikacja:\n" +
                             "${BuildConfig.GOOGLE_WEB_CLIENT_ID}\n\n" +
                             "Ten drugi nie może być klientem Android. Nowe wpisy Google " +
-                            "propaguje od 5 minut do kilku godzin."
-                    CommonStatusCodes.NETWORK_ERROR -> "Brak połączenia z Google."
-                    GoogleSignInStatusCodes.SIGN_IN_FAILED ->
+                            "propaguje od 5 minut do kilku godzin.",
+                        "Code 10: Google didn't match the app to the console.\n\n" +
+                            "Project ${BuildConfig.GOOGLE_WEB_CLIENT_ID.substringBefore('-')} " +
+                            "needs two OAuth clients:\n\n" +
+                            "Android — package ${context.packageName}, SHA-1:\n${podpisSha1(context)}\n\n" +
+                            "Web application — the app sends this one's ID:\n" +
+                            "${BuildConfig.GOOGLE_WEB_CLIENT_ID}\n\n" +
+                            "The second one can't be an Android client. Google takes " +
+                            "from 5 minutes to a few hours to apply new entries.",
+                    )
+                    CommonStatusCodes.NETWORK_ERROR -> tr("Brak połączenia z Google.", "Can't reach Google.")
+                    GoogleSignInStatusCodes.SIGN_IN_FAILED -> tr(
                         "Google odrzucił logowanie. Upewnij się, że ekran zgody OAuth " +
-                            "jest skonfigurowany w tym samym projekcie."
-                    else -> "Logowanie Google nie powiodło się (kod ${e.statusCode})."
+                            "jest skonfigurowany w tym samym projekcie.",
+                        "Google rejected the sign-in. Make sure the OAuth consent screen " +
+                            "is set up in the same project.",
+                    )
+                    else -> tr(
+                        "Logowanie Google nie powiodło się (kod ${e.statusCode}).",
+                        "Google sign-in failed (code ${e.statusCode}).",
+                    )
                 }
             } catch (e: Exception) {
                 error = e.message
@@ -584,6 +613,8 @@ private fun CyphrApp(
 
     LaunchedEffect(Unit) {
         val started = System.currentTimeMillis()
+        // Jezyk po adresie IP: pytanie idzie od razu, rownolegle z odtwarzaniem sesji.
+        val geo = LangPick.refresh(context)
         var restored: User? = null
         if (Api.token() != null) {
             restored = try { Api.me() } catch (e: Exception) {
@@ -600,6 +631,11 @@ private fun CyphrApp(
         }
         val left = motion(1300) - (System.currentTimeMillis() - started)
         if (left > 0) delay(left)
+        // Pierwsze uruchomienie: logowanie od razu we wlasciwym jezyku. Na serwer czekamy
+        // najwyzej 2,5 s od startu — potem zostaje jezyk sieci komorkowej albo telefonu.
+        if (!LangPick.knowsIp && Prefs.langChoice == null) {
+            kotlinx.coroutines.withTimeoutOrNull((2500 - (System.currentTimeMillis() - started)).coerceAtLeast(1)) { geo.await() }
+        }
         if (restored != null) open(restored) else route = Route.Auth
     }
 
@@ -692,7 +728,7 @@ private fun CyphrApp(
                     onForgot = { email ->
                         // Samo pole e-mail musi byc sensowne — reszta dzieje sie na serwerze.
                         error = if (!Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(email)) {
-                            "Wpisz swój adres e-mail, wyślemy na niego kod."
+                            tr("Wpisz swój adres e-mail, wyślemy na niego kod.", "Enter your email address and we'll send you a code.")
                         } else {
                             null
                         }
@@ -724,7 +760,7 @@ private fun CyphrApp(
                                     // Blad spoza naszego API ma nieprzetlumaczony komunikat,
                                     // wiec dokladamy typ wyjatku — inaczej nie wiadomo co sie stalo.
                                     error = if (e is ApiError) e.message
-                                    else "${e.javaClass.simpleName}: ${e.message ?: "brak szczegółów"}"
+                                    else "${e.javaClass.simpleName}: ${e.message ?: tr("brak szczegółów", "no details")}"
                                 }
                             } finally { busy = false }
                         }
@@ -741,13 +777,13 @@ private fun CyphrApp(
                     onResend = {
                         scope.launch {
                             busy = true
-                            try { Api.resend(pendingEmail); cooldown = 60; toast = "Wysłaliśmy nowy kod." }
+                            try { Api.resend(pendingEmail); cooldown = 60; toast = tr("Wysłaliśmy nowy kod.", "We've sent a new code.") }
                             catch (e: Exception) { error = e.message }
                             finally { busy = false }
                         }
                     },
                     onSubmit = { code ->
-                        if (code.length != 6) error = "Wpisz wszystkie 6 cyfr."
+                        if (code.length != 6) error = tr("Wpisz wszystkie 6 cyfr.", "Enter all 6 digits.")
                         else scope.launch {
                             busy = true
                             try { Api.verify(context, pendingEmail, code)?.let { enterApp(it) } }
@@ -771,15 +807,15 @@ private fun CyphrApp(
                     onResend = {
                         scope.launch {
                             busy = true
-                            try { Api.forgot(pendingEmail); cooldown = 60; toast = "Wysłaliśmy nowy kod." }
+                            try { Api.forgot(pendingEmail); cooldown = 60; toast = tr("Wysłaliśmy nowy kod.", "We've sent a new code.") }
                             catch (e: Exception) { error = e.message }
                             finally { busy = false }
                         }
                     },
                     onSubmit = { code, haslo ->
                         error = when {
-                            code.length != 6 -> "Wpisz wszystkie 6 cyfr."
-                            haslo.length < 8 -> "Hasło musi mieć co najmniej 8 znaków."
+                            code.length != 6 -> tr("Wpisz wszystkie 6 cyfr.", "Enter all 6 digits.")
+                            haslo.length < 8 -> tr("Hasło musi mieć co najmniej 8 znaków.", "The password must be at least 8 characters.")
                             else -> null
                         }
                         if (error == null) scope.launch {
@@ -809,14 +845,14 @@ private fun CyphrApp(
                                         e is ApiError && e.code == "not_verified" -> {
                                             error = null; cooldown = 60; route = Route.Verify
                                         }
-                                        e is ApiError && e.status == 429 -> error = "Hasło zmienione. ${e.message}"
-                                        else -> { error = null; toast = "Hasło zmienione. Zaloguj się nowym hasłem." }
+                                        e is ApiError && e.status == 429 -> error = tr("Hasło zmienione. ${e.message}", "Password changed. ${e.message}")
+                                        else -> { error = null; toast = tr("Hasło zmienione. Zaloguj się nowym hasłem.", "Password changed. Sign in with the new password.") }
                                     }
                                 }
                             } catch (e: Exception) {
                                 // Odbicie od limitera nie uniewaznia kodu z maila.
                                 error = if (e is ApiError && e.status == 429) {
-                                    "${e.message} Twój kod jest dalej ważny."
+                                    tr("${e.message} Twój kod jest dalej ważny.", "${e.message} Your code is still valid.")
                                 } else {
                                     e.message
                                 }
@@ -830,7 +866,7 @@ private fun CyphrApp(
 
                 Route.Settings -> Scaffold(
                     containerColor = Ink,
-                    topBar = { SubHeader("Ustawienia") { route = Route.Main } },
+                    topBar = { SubHeader(tr("Ustawienia", "Settings")) { route = Route.Main } },
                 ) { padding ->
                     Box(Modifier.padding(padding)) {
                         SettingsScreen(
@@ -892,7 +928,7 @@ private fun CyphrApp(
                                     onSend = { text, _ ->
                                         val model = selectedAgent
                                         val uid = user?.id
-                                        if (model == null) { toast = "Najpierw wybierz agenta."; return@ChatTab }
+                                        if (model == null) { toast = tr("Najpierw wybierz agenta.", "Pick an agent first."); return@ChatTab }
                                         if (uid == null) return@ChatTab
                                         // Odpowiedz trafia do rozmowy, w ktorej padlo pytanie —
                                         // nawet gdy przelaczysz rozmowe albo wyjdziesz z aplikacji.
@@ -909,7 +945,7 @@ private fun CyphrApp(
                                 Tab.Agents -> AgentsTab(agents, selectedAgent, busy, usage, lastTokens, onPick = {
                                     selectedAgent = it.id
                                     Prefs.setAgent(it.id)
-                                    toast = "Wybrano: ${it.name}"
+                                    toast = tr("Wybrano: ${it.name}", "Selected: ${it.name}")
                                     tab = Tab.Chat
                                 }) { scope.launch { loadAgents() } }
 
@@ -933,11 +969,14 @@ private fun CyphrApp(
                                     onCloseAnswer = { answer = null },
                                     onAsk = { pageText, url, question ->
                                         val model = selectedAgent
-                                        if (model == null) { toast = "Najpierw wybierz agenta."; return@BrowserTab }
+                                        if (model == null) { toast = tr("Najpierw wybierz agenta.", "Pick an agent first."); return@BrowserTab }
                                         scope.launch {
                                             asking = true
                                             try {
-                                                val prompt = "Strona: $url\n\nTreść:\n$pageText\n\nPytanie: $question"
+                                                val prompt = tr(
+                                                    "Strona: $url\n\nTreść:\n$pageText\n\nPytanie: $question",
+                                                    "Page: $url\n\nContent:\n$pageText\n\nQuestion: $question",
+                                                )
                                                 val r = Api.chat(model, listOf(ChatMessage(prompt, true)))
                                                 answer = r.text
                                                 ChatEngine.noteUsage(r.inTokens to r.outTokens)
@@ -982,9 +1021,12 @@ private fun CyphrApp(
             // Klucz: kazda prosba to osobne okno, nawet gdy model poprosi dwa razy o to samo.
             key(request) {
                 PermissionDialog(
-                    title = "Model prosi o wykonanie polecenia",
+                    title = tr("Model prosi o wykonanie polecenia", "The model asks to run a command"),
                     what = request.command,
-                    detail = "Rozmowa „${request.chat}”. Wynik wróci do modelu i policzy się jako tokeny.",
+                    detail = tr(
+                        "Rozmowa „${request.chat}”. Wynik wróci do modelu i policzy się jako tokeny.",
+                        "Chat \"${request.chat}\". The result goes back to the model and counts as tokens.",
+                    ),
                     allowAlways = false,
                     onAllowOnce = { ChatEngine.answer(request, true) },
                     onAllowAlways = {},
@@ -1015,24 +1057,31 @@ private fun CyphrApp(
             AlertDialog(
                 onDismissRequest = { Prefs.setTermuxPrompted(version); termuxOld = null },
                 containerColor = Raise,
-                title = { Text("Termux do wymiany", color = Paper, fontWeight = FontWeight.Bold) },
+                title = { Text(tr("Termux do wymiany", "Termux needs replacing"), color = Paper, fontWeight = FontWeight.Bold) },
                 text = {
                     Text(
-                        (if (Termux.isPlayBuild(version)) "Masz Termuksa z Google Play — ta wersja nie przyjmuje poleceń od innych aplikacji"
-                        else "Twój Termux jest za stary albo nie przyjmuje poleceń od innych aplikacji") +
-                            ", więc CYPHR nie może z niego korzystać. CYPHR wymieni go na Termuksa z F-Droid: " +
-                            "odinstalujesz obecny, a właściwy sam się pobierze i sprawdzi.",
+                        if (isEn) {
+                            (if (Termux.isPlayBuild(version)) "You have Termux from Google Play — this version doesn't accept commands from other apps"
+                            else "Your Termux is too old or doesn't accept commands from other apps") +
+                                ", so CYPHR can't use it. CYPHR will replace it with Termux from F-Droid: " +
+                                "you uninstall the current one, and the right one downloads and gets checked by itself."
+                        } else {
+                            (if (Termux.isPlayBuild(version)) "Masz Termuksa z Google Play — ta wersja nie przyjmuje poleceń od innych aplikacji"
+                            else "Twój Termux jest za stary albo nie przyjmuje poleceń od innych aplikacji") +
+                                ", więc CYPHR nie może z niego korzystać. CYPHR wymieni go na Termuksa z F-Droid: " +
+                                "odinstalujesz obecny, a właściwy sam się pobierze i sprawdzi."
+                        },
                         color = Mist,
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = { Prefs.setTermuxPrompted(version); termuxOld = null; termuxSheet = true }) {
-                        Text("Wymień teraz", color = Paper, fontWeight = FontWeight.Bold)
+                        Text(tr("Wymień teraz", "Replace now"), color = Paper, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { Prefs.setTermuxPrompted(version); termuxOld = null }) {
-                        Text("Nie teraz", color = Mist)
+                        Text(tr("Nie teraz", "Not now"), color = Mist)
                     }
                 },
             )
@@ -1059,13 +1108,14 @@ private fun CyphrApp(
                             delay(1400)
                             buying = null
                             bought = false
-                            toast = if (credited > 0) "Doładowano ${usd(credited)}." else "Zakup zasymulowany. Saldo bez zmian."
+                            toast = if (credited > 0) tr("Doładowano ${usd(credited)}.", "Topped up ${usd(credited)}.")
+                            else tr("Zakup zasymulowany. Saldo bez zmian.", "Purchase simulated. Balance unchanged.")
                             shop = try { Api.shop() } catch (e: Exception) { shop }
                         } catch (e: Exception) { toast = e.message } finally { busy = false }
                         }
                         Unit
                     }
-                    if (Prefs.confirmBuy) requireFingerprint("Potwierdź zakup") { pay() } else pay()
+                    if (Prefs.confirmBuy) requireFingerprint(tr("Potwierdź zakup", "Confirm purchase")) { pay() } else pay()
                 },
             )
         }
@@ -1100,7 +1150,7 @@ private fun SubHeader(title: String, onBack: () -> Unit) {
                 .clickable { onBack() },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_back), "Wróć", tint = Paper, modifier = Modifier.size(20.dp))
+            Icon(painterResource(R.drawable.ic_back), tr("Wróć", "Back"), tint = Paper, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.width(6.dp))
         Text(title, color = Paper, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -1128,20 +1178,20 @@ private fun BuyOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             BuyAnimation(
-                label = "Pakiet ${pack.name}",
+                label = tr("Pakiet ${pack.name}", "${pack.name} pack"),
                 amount = usd(pack.amountUsd),
                 holder = holder,
                 done = done,
             )
             Spacer(Modifier.height(28.dp))
             if (!done) {
-                Lead("Płatność testowa. Nic nie zostanie pobrane.", center = true)
+                Lead(tr("Płatność testowa. Nic nie zostanie pobrane.", "Test payment. Nothing will be charged."), center = true)
                 Spacer(Modifier.height(16.dp))
-                PrimaryButton("Zapłać ${usd(pack.amountUsd)}", busy = busy, onClick = onConfirm)
+                PrimaryButton(tr("Zapłać ${usd(pack.amountUsd)}", "Pay ${usd(pack.amountUsd)}"), busy = busy, onClick = onConfirm)
                 Spacer(Modifier.height(10.dp))
-                GhostButton("Anuluj", enabled = !busy, onClick = onClose)
+                GhostButton(tr("Anuluj", "Cancel"), enabled = !busy, onClick = onClose)
             } else {
-                Text("Gotowe", color = Paper, fontWeight = FontWeight.ExtraBold)
+                Text(tr("Gotowe", "Done"), color = Paper, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
@@ -1162,18 +1212,18 @@ private fun podpisSha1(context: Context): String = try {
         @Suppress("DEPRECATION")
         pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures
     }
-    val cert = podpisy?.firstOrNull() ?: error("brak podpisu")
+    val cert = podpisy?.firstOrNull() ?: error("no signature")
     java.security.MessageDigest.getInstance("SHA-1")
         .digest(cert.toByteArray())
         .joinToString(":") { "%02X".format(it) }
 } catch (e: Exception) {
-    "nie udało się odczytać"
+    tr("nie udało się odczytać", "couldn't read it")
 }
 
 private fun validate(register: Boolean, email: String, password: String): String? = when {
-    !Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(email) -> "Podaj poprawny adres e-mail."
-    password.isBlank() -> "Wpisz hasło."
-    register && password.length < 8 -> "Hasło musi mieć co najmniej 8 znaków."
+    !Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$").matches(email) -> tr("Podaj poprawny adres e-mail.", "Enter a valid email address.")
+    password.isBlank() -> tr("Wpisz hasło.", "Enter your password.")
+    register && password.length < 8 -> tr("Hasło musi mieć co najmniej 8 znaków.", "The password must be at least 8 characters.")
     else -> null
 }
 

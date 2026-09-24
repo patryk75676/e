@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /** Lista rozmow: przelaczanie, zakladanie nowej, zmiana nazwy i usuwanie. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,15 +51,15 @@ fun ChatListSheet(
         AlertDialog(
             onDismissRequest = { renaming = null },
             containerColor = Raise,
-            title = { Text("Nazwa rozmowy", color = Paper, fontWeight = FontWeight.Bold) },
-            text = { Field(draft, "Nazwa", { draft = it }) },
+            title = { Text(tr("Nazwa rozmowy", "Chat name"), color = Paper, fontWeight = FontWeight.Bold) },
+            text = { Field(draft, tr("Nazwa", "Name"), { draft = it }) },
             confirmButton = {
                 TextButton(onClick = { onRename(chat.id, draft.trim()); renaming = null }) {
-                    Text("Zapisz", color = Paper, fontWeight = FontWeight.Bold)
+                    Text(tr("Zapisz", "Save"), color = Paper, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { renaming = null }) { Text("Anuluj", color = Mist) }
+                TextButton(onClick = { renaming = null }) { Text(tr("Anuluj", "Cancel"), color = Mist) }
             },
         )
     }
@@ -69,21 +68,22 @@ fun ChatListSheet(
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             containerColor = Raise,
-            title = { Text("Usunąć rozmowę?", color = Paper, fontWeight = FontWeight.Bold) },
+            title = { Text(tr("Usunąć rozmowę?", "Delete chat?"), color = Paper, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "\"${chat.label}\" — ${chat.messages.size} wiadomości. " +
-                        "Tego nie da się cofnąć.",
+                    "\"${chat.label}\" — " +
+                        count(chat.messages.size, "wiadomość", "wiadomości", "wiadomości", "message", "messages") +
+                        tr(". Tego nie da się cofnąć.", ". This can't be undone."),
                     color = Mist,
                 )
             },
             confirmButton = {
                 TextButton(onClick = { onDelete(chat.id); confirmDelete = null }) {
-                    Text("Usuń", color = Paper, fontWeight = FontWeight.Bold)
+                    Text(tr("Usuń", "Delete"), color = Paper, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Zostaw", color = Mist) }
+                TextButton(onClick = { confirmDelete = null }) { Text(tr("Zostaw", "Keep"), color = Mist) }
             },
         )
     }
@@ -105,15 +105,15 @@ internal fun ChatListContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Rozmowy", color = Paper, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+            Text(tr("Rozmowy", "Chats"), color = Paper, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
             Text("${chats.size}", color = Mist, fontSize = 13.sp)
         }
 
-        PrimaryButton("Nowa rozmowa", onClick = onNew)
+        PrimaryButton(tr("Nowa rozmowa", "New chat"), onClick = onNew)
         Spacer(Modifier.height(14.dp))
 
         if (chats.isEmpty()) {
-            Lead("Nie ma jeszcze żadnej rozmowy.", center = true)
+            Lead(tr("Nie ma jeszcze żadnej rozmowy.", "No chats yet."), center = true)
             Spacer(Modifier.height(20.dp))
         } else {
             LazyColumn(
@@ -161,31 +161,30 @@ private fun ChatRow(
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                "${chat.messages.size} wiad." +
-                    (if (chat.memory.folded > 0) " · ${chat.memory.folded} zwinięte" else "") +
+                tr("${chat.messages.size} wiad.", "${chat.messages.size} msg.") +
+                    (if (chat.memory.folded > 0) tr(" · ${chat.memory.folded} zwinięte", " · ${chat.memory.folded} folded") else "") +
                     (chat.updatedAt.takeIf { it > 0 }?.let { "  ·  ${stamp(it)}" } ?: ""),
                 color = Mist,
                 fontSize = 12.sp,
             )
         }
         IconButton(onClick = onRename) {
-            Icon(painterResource(R.drawable.ic_edit), "Zmień nazwę", tint = Mist, modifier = Modifier.size(19.dp))
+            Icon(painterResource(R.drawable.ic_edit), tr("Zmień nazwę", "Rename"), tint = Mist, modifier = Modifier.size(19.dp))
         }
         IconButton(onClick = onDelete) {
-            Icon(painterResource(R.drawable.ic_delete), "Usuń", tint = Mist, modifier = Modifier.size(19.dp))
+            Icon(painterResource(R.drawable.ic_delete), tr("Usuń", "Delete"), tint = Mist, modifier = Modifier.size(19.dp))
         }
     }
 }
 
-/** Cala aplikacja jest po polsku — daty tez, niezaleznie od jezyka telefonu. */
-private val PL = Locale("pl", "PL")
-
+/** Daty w jezyku aplikacji, niezaleznie od jezyka telefonu: „niedziela” albo „Sunday”. */
 private fun stamp(millis: Long): String {
     val now = System.currentTimeMillis()
     val day = 24 * 60 * 60 * 1000L
+    val locale = appLocale
     return when {
-        now - millis < day -> SimpleDateFormat("HH:mm", PL).format(Date(millis))
-        now - millis < 7 * day -> SimpleDateFormat("EEEE", PL).format(Date(millis))
-        else -> SimpleDateFormat("d MMM", PL).format(Date(millis))
+        now - millis < day -> SimpleDateFormat("HH:mm", locale).format(Date(millis))
+        now - millis < 7 * day -> SimpleDateFormat("EEEE", locale).format(Date(millis))
+        else -> SimpleDateFormat(if (isEn) "MMM d" else "d MMM", locale).format(Date(millis))
     }
 }

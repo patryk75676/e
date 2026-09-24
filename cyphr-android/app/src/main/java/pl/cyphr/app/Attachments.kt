@@ -147,8 +147,8 @@ object Attachments {
      * „do wyslania” np. nasze ustawienia.
      */
     suspend fun import(context: Context, uri: Uri): Attachment = withContext(Dispatchers.IO) {
-        if (uri.scheme != "content") throw AttachError("Tego pliku nie da się otworzyć.")
-        if (uri.authority == context.packageName + ".files") throw AttachError("Tego pliku nie da się otworzyć.")
+        if (uri.scheme != "content") throw AttachError(tr("Tego pliku nie da się otworzyć.", "This file can't be opened."))
+        if (uri.authority == context.packageName + ".files") throw AttachError(tr("Tego pliku nie da się otworzyć.", "This file can't be opened."))
         val resolver = context.contentResolver
         var name = ""
         var size = -1L
@@ -161,16 +161,21 @@ object Attachments {
             }
         } catch (_: Exception) {
         }
-        if (size > MAX_FILE_BYTES) throw AttachError("Plik jest za duży — najwyżej ${MAX_FILE_BYTES / 1024 / 1024} MB.")
+        if (size > MAX_FILE_BYTES) throw AttachError(tr("Plik jest za duży — najwyżej ${MAX_FILE_BYTES / 1024 / 1024} MB.", "The file is too big — at most ${MAX_FILE_BYTES / 1024 / 1024} MB."))
         val mime = (try { resolver.getType(uri) } catch (_: Exception) { null }).orEmpty().lowercase()
         val ext = name.substringAfterLast('.', "").lowercase()
         when {
             mime.startsWith("image/") || ext in setOf("jpg", "jpeg", "png", "webp", "heic", "heif", "gif", "bmp") ->
-                importImage(context, uri, name.ifBlank { "Obraz" }, size)
-            mime == "application/pdf" || ext == "pdf" -> importPdf(context, uri, name.ifBlank { "Dokument.pdf" }, size)
+                importImage(context, uri, name.ifBlank { tr("Obraz", "Image") }, size)
+            mime == "application/pdf" || ext == "pdf" -> importPdf(context, uri, name.ifBlank { tr("Dokument.pdf", "Document.pdf") }, size)
             mime.startsWith("text/") || mime in textMimes || ext in textExtensions ->
-                importText(context, uri, name.ifBlank { "Plik.txt" }, size, mime)
-            else -> throw AttachError("Tego typu pliku nie obsłużę. Wyślij zdjęcie, PDF albo plik tekstowy.")
+                importText(context, uri, name.ifBlank { tr("Plik.txt", "File.txt") }, size, mime)
+            else -> throw AttachError(
+                tr(
+                    "Tego typu pliku nie obsłużę. Wyślij zdjęcie, PDF albo plik tekstowy.",
+                    "This type of file isn't supported. Send a photo, a PDF or a text file.",
+                ),
+            )
         }
     }
 
@@ -218,13 +223,13 @@ object Attachments {
             resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             val w = bounds.outWidth
             val h = bounds.outHeight
-            if (w <= 0 || h <= 0) throw AttachError("Nie udało się otworzyć obrazu.")
-            if (w.toLong() * h > MAX_PIXELS) throw AttachError("Obraz jest zbyt duży.")
+            if (w <= 0 || h <= 0) throw AttachError(tr("Nie udało się otworzyć obrazu.", "Couldn't open the image."))
+            if (w.toLong() * h > MAX_PIXELS) throw AttachError(tr("Obraz jest zbyt duży.", "The image is too large."))
             var sample = 1
             while (max(w, h) / (sample * 2) >= maxSide) sample *= 2
             val raw = resolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-            } ?: throw AttachError("Nie udało się otworzyć obrazu.")
+            } ?: throw AttachError(tr("Nie udało się otworzyć obrazu.", "Couldn't open the image."))
             val orientation = try {
                 resolver.openInputStream(uri)?.use {
                     ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
@@ -244,9 +249,9 @@ object Attachments {
         } catch (e: AttachError) {
             throw e
         } catch (e: OutOfMemoryError) {
-            throw AttachError("Obraz jest zbyt duży.")
+            throw AttachError(tr("Obraz jest zbyt duży.", "The image is too large."))
         } catch (e: Exception) {
-            throw AttachError("Nie udało się otworzyć obrazu.")
+            throw AttachError(tr("Nie udało się otworzyć obrazu.", "Couldn't open the image."))
         }
     }
 
@@ -285,24 +290,24 @@ object Attachments {
                         val n = input.read(buf)
                         if (n < 0) break
                         copied += n
-                        if (copied > MAX_FILE_BYTES) throw AttachError("Plik jest za duży — najwyżej ${MAX_FILE_BYTES / 1024 / 1024} MB.")
+                        if (copied > MAX_FILE_BYTES) throw AttachError(tr("Plik jest za duży — najwyżej ${MAX_FILE_BYTES / 1024 / 1024} MB.", "The file is too big — at most ${MAX_FILE_BYTES / 1024 / 1024} MB."))
                         output.write(buf, 0, n)
                     }
                 }
-            } ?: throw AttachError("Nie udało się otworzyć pliku.")
+            } ?: throw AttachError(tr("Nie udało się otworzyć pliku.", "Couldn't open the file."))
             val fd = ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY)
             // Od udanego otwarcia deskryptor nalezy do PdfRenderer; przy bledzie zamykamy go sami.
             val renderer = try {
                 PdfRenderer(fd)
             } catch (e: SecurityException) {
                 fd.close()
-                throw AttachError("Ten PDF jest zabezpieczony hasłem.")
+                throw AttachError(tr("Ten PDF jest zabezpieczony hasłem.", "This PDF is password-protected."))
             } catch (e: Exception) {
                 fd.close()
-                throw AttachError("Nie udało się otworzyć PDF-a.")
+                throw AttachError(tr("Nie udało się otworzyć PDF-a.", "Couldn't open the PDF."))
             }
             renderer.use { r ->
-                if (r.pageCount == 0) throw AttachError("PDF jest pusty.")
+                if (r.pageCount == 0) throw AttachError(tr("PDF jest pusty.", "The PDF is empty."))
                 val files = ArrayList<String>()
                 var firstW = 0
                 var firstH = 0
@@ -346,7 +351,7 @@ object Attachments {
                 buf.write(chunk, 0, n)
             }
             buf.toByteArray()
-        } ?: throw AttachError("Nie udało się otworzyć pliku.")
+        } ?: throw AttachError(tr("Nie udało się otworzyć pliku.", "Couldn't open the file."))
         val (text, cut) = textOf(bytes, size > bytes.size)
         return Attachment(
             kind = Attachment.Kind.Text,
@@ -360,7 +365,7 @@ object Attachments {
 
     /** Tekst z bajtow pliku. Bajt zerowy to znak pliku binarnego — takiego modelowi nie wysylamy. */
     internal fun textOf(bytes: ByteArray, moreInFile: Boolean): Pair<String, Boolean> {
-        if (bytes.any { it == 0.toByte() }) throw AttachError("To nie jest plik tekstowy.")
+        if (bytes.any { it == 0.toByte() }) throw AttachError(tr("To nie jest plik tekstowy.", "This isn't a text file."))
         var text = String(bytes, Charsets.UTF_8).removePrefix("﻿")
         var cut = moreInFile
         if (text.length > TEXT_MAX_CHARS) { text = text.take(TEXT_MAX_CHARS); cut = true }
@@ -383,7 +388,7 @@ object Attachments {
         BitmapFactory.decodeFile(f.path, bounds)
         return Attachment(
             kind = Attachment.Kind.Generated,
-            name = "Obraz CYPHR",
+            name = tr("Obraz CYPHR", "CYPHR image"),
             mime = mime,
             size = bytes.size.toLong(),
             files = listOf(rel(context, f)),
@@ -452,7 +457,7 @@ object Attachments {
             .setType(mime.ifBlank { "image/*" })
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        return Intent.createChooser(send, "Udostępnij obraz").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return Intent.createChooser(send, tr("Udostępnij obraz", "Share image")).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
     /** Czy da sie zapisac do galerii bez zadnych uprawnien (Android 10+). */
@@ -494,16 +499,16 @@ object Attachments {
 
     /** Krotki opis zalacznika — tam, gdzie nie ma miejsca na sam obraz (historia, notatka). */
     fun describe(a: Attachment): String = when (a.kind) {
-        Attachment.Kind.Image -> "Załączony obraz: ${a.name}"
-        Attachment.Kind.Pdf -> "Załączony PDF: ${a.name}, stron: ${a.pages}"
-        Attachment.Kind.Text -> "Załączony plik: ${a.name}"
-        Attachment.Kind.Generated -> "Stworzony obraz: ${a.prompt}"
+        Attachment.Kind.Image -> tr("Załączony obraz: ${a.name}", "Attached image: ${a.name}")
+        Attachment.Kind.Pdf -> tr("Załączony PDF: ${a.name}, stron: ${a.pages}", "Attached PDF: ${a.name}, pages: ${a.pages}")
+        Attachment.Kind.Text -> tr("Załączony plik: ${a.name}", "Attached file: ${a.name}")
+        Attachment.Kind.Generated -> tr("Stworzony obraz: ${a.prompt}", "Created image: ${a.prompt}")
     }
 
-    /** Rozmiar po ludzku: 850 B, 12 KB, 3,4 MB. */
+    /** Rozmiar po ludzku: 850 B, 12 KB, 3,4 MB (po angielsku 3.4 MB). */
     fun humanSize(bytes: Long): String = when {
         bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024 -> "${(bytes + 512) / 1024} KB"
-        else -> String.format(java.util.Locale("pl"), "%.1f MB", bytes / 1024.0 / 1024.0)
+        else -> String.format(appLocale, "%.1f MB", bytes / 1024.0 / 1024.0)
     }
 }

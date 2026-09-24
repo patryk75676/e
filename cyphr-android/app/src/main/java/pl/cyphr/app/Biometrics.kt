@@ -42,7 +42,7 @@ object Biometrics {
             BiometricManager.BIOMETRIC_SUCCESS -> {
                 val biometric = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
                     BiometricManager.BIOMETRIC_SUCCESS
-                if (biometric) namesFor(context) else State.Ready("kod ekranu blokady", "kodem ekranu blokady")
+                if (biometric) namesFor(context) else ready("kod ekranu blokady", "kodem ekranu blokady", "screen lock code")
             }
             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> State.NotEnrolled
             BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE,
@@ -61,13 +61,17 @@ object Biometrics {
         val face = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && pm.hasSystemFeature(PackageManager.FEATURE_FACE)
         val iris = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && pm.hasSystemFeature(PackageManager.FEATURE_IRIS)
         return when {
-            finger && (face || iris) -> State.Ready("odcisk palca lub twarz", "odciskiem palca lub twarzą")
-            finger -> State.Ready("odcisk palca", "odciskiem palca")
-            face -> State.Ready("skan twarzy", "skanem twarzy")
-            iris -> State.Ready("skan tęczówki", "skanem tęczówki")
-            else -> State.Ready("dane biometryczne", "danymi biometrycznymi")
+            finger && (face || iris) -> ready("odcisk palca lub twarz", "odciskiem palca lub twarzą", "fingerprint or face")
+            finger -> ready("odcisk palca", "odciskiem palca", "fingerprint")
+            face -> ready("skan twarzy", "skanem twarzy", "face scan")
+            iris -> ready("skan tęczówki", "skanem tęczówki", "iris scan")
+            else -> ready("dane biometryczne", "danymi biometrycznymi", "biometrics")
         }
     }
+
+    /** Po angielsku nazwa nie odmienia sie przez przypadki — jedna forma na oba miejsca. */
+    private fun ready(label: String, instrumental: String, en: String) =
+        if (isEn) State.Ready(en, en) else State.Ready(label, instrumental)
 
     fun available(context: Context): Boolean = state(context) is State.Ready
 
@@ -91,15 +95,15 @@ object Biometrics {
         when (val state = state(activity)) {
             is State.Ready -> Unit
             State.NotEnrolled -> {
-                onFailure("Telefon nie ma jeszcze zapisanej blokady ekranu. Ustaw ją i wróć.")
+                onFailure(tr("Telefon nie ma jeszcze zapisanej blokady ekranu. Ustaw ją i wróć.", "This phone has no screen lock yet. Set one up and come back."))
                 return
             }
             State.None -> {
-                onFailure("To urządzenie nie obsługuje potwierdzania tożsamości.")
+                onFailure(tr("To urządzenie nie obsługuje potwierdzania tożsamości.", "This device can't confirm your identity."))
                 return
             }
             State.Unavailable -> {
-                onFailure("Czytnik jest chwilowo niedostępny. Spróbuj za moment.")
+                onFailure(tr("Czytnik jest chwilowo niedostępny. Spróbuj za moment.", "The sensor is temporarily unavailable. Try again in a moment."))
                 return
             }
         }

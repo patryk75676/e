@@ -23,13 +23,20 @@ object Notifications {
     private fun channels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(
-            NotificationChannel(WORK, "Odpowiedź w toku", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Widać, gdy model kończy odpowiedź, a aplikacja jest w tle."
+            // Nazwy kanalow w jezyku aplikacji — ponowne utworzenie tylko je podmienia.
+            NotificationChannel(WORK, tr("Odpowiedź w toku", "Reply in progress"), NotificationManager.IMPORTANCE_LOW).apply {
+                description = tr(
+                    "Widać, gdy model kończy odpowiedź, a aplikacja jest w tle.",
+                    "Shown while the model finishes a reply and the app is in the background.",
+                )
             },
         )
         manager.createNotificationChannel(
-            NotificationChannel(DONE, "Gotowe odpowiedzi", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Odpowiedź gotowa albo model prosi o zgodę na polecenie."
+            NotificationChannel(DONE, tr("Gotowe odpowiedzi", "Finished replies"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = tr(
+                    "Odpowiedź gotowa albo model prosi o zgodę na polecenie.",
+                    "A reply is ready or the model asks for permission to run a command.",
+                )
             },
         )
     }
@@ -49,8 +56,8 @@ object Notifications {
         channels(context)
         return NotificationCompat.Builder(context, WORK)
             .setSmallIcon(R.drawable.ghost)
-            .setContentTitle("$name odpowiada…")
-            .setContentText("Możesz wyjść z aplikacji — odpowiedź zapisze się w rozmowie.")
+            .setContentTitle(tr("$name odpowiada…", "$name is replying…"))
+            .setContentText(tr("Możesz wyjść z aplikacji — odpowiedź zapisze się w rozmowie.", "You can leave the app — the reply will be saved in the chat."))
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openApp(context))
@@ -58,13 +65,18 @@ object Notifications {
     }
 
     fun replyReady(context: Context, name: String) =
-        post(context, READY_ID, "$name odpowiedział", "Dotknij, żeby przeczytać odpowiedź.")
+        post(context, READY_ID, tr("$name odpowiedział", "$name replied"), tr("Dotknij, żeby przeczytać odpowiedź.", "Tap to read the reply."))
 
     fun approvalNeeded(context: Context, name: String) =
-        post(context, APPROVAL_ID, "$name prosi o zgodę na polecenie", "Otwórz CYPHR, żeby zezwolić albo odmówić.")
+        post(
+            context,
+            APPROVAL_ID,
+            tr("$name prosi o zgodę na polecenie", "$name asks for permission to run a command"),
+            tr("Otwórz CYPHR, żeby zezwolić albo odmówić.", "Open CYPHR to allow or deny."),
+        )
 
     fun failed(context: Context, message: String) =
-        post(context, READY_ID, "Nie udało się dokończyć odpowiedzi", message)
+        post(context, READY_ID, tr("Nie udało się dokończyć odpowiedzi", "Couldn't finish the reply"), message)
 
     fun cancelApproval(context: Context) = NotificationManagerCompat.from(context).cancel(APPROVAL_ID)
 

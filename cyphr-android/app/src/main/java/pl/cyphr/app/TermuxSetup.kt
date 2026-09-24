@@ -101,15 +101,16 @@ fun TermuxSetup() {
         }
     }
     val badge = when (state) {
-        null -> "Sprawdzam…"
-        Termux.State.Ready -> "Połączony"
-        Termux.State.NotInstalled -> "Nie zainstalowany"
-        Termux.State.NoCommandApi -> if (Termux.isPlayBuild(status?.version)) "Wersja z Play" else "Nieobsługiwany"
-        Termux.State.TooOld -> "Za stara wersja"
-        Termux.State.NoPermission -> "Brak zgody"
-        Termux.State.ExternalAppsBlocked -> "Blokuje polecenia"
-        Termux.State.NoReply -> "Nie odpowiada"
-        Termux.State.Failed -> "Błąd"
+        null -> tr("Sprawdzam…", "Checking…")
+        Termux.State.Ready -> tr("Połączony", "Connected")
+        Termux.State.NotInstalled -> tr("Nie zainstalowany", "Not installed")
+        Termux.State.NoCommandApi ->
+            if (Termux.isPlayBuild(status?.version)) tr("Wersja z Play", "Play version") else tr("Nieobsługiwany", "Unsupported")
+        Termux.State.TooOld -> tr("Za stara wersja", "Version too old")
+        Termux.State.NoPermission -> tr("Brak zgody", "No permission")
+        Termux.State.ExternalAppsBlocked -> tr("Blokuje polecenia", "Blocks commands")
+        Termux.State.NoReply -> tr("Nie odpowiada", "Not responding")
+        Termux.State.Failed -> tr("Błąd", "Error")
     }
     val good = state == Termux.State.Ready
 
@@ -120,7 +121,7 @@ fun TermuxSetup() {
     ) {
         Column {
             Text("Termux", color = Paper, fontWeight = FontWeight.Bold)
-            status?.version?.let { Text("wersja $it", color = Mist, fontSize = 12.sp) }
+            status?.version?.let { Text(tr("wersja $it", "version $it"), color = Mist, fontSize = 12.sp) }
         }
         Box(
             Modifier
@@ -147,20 +148,20 @@ fun TermuxSetup() {
             Text(Termux.SETUP_COMMAND, color = Paper, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
         Spacer(Modifier.height(10.dp))
-        GhostButton(if (copied) "Skopiowano — wklej w Termuksie" else "Kopiuj polecenie") {
+        GhostButton(if (copied) tr("Skopiowano — wklej w Termuksie", "Copied — paste it in Termux") else tr("Kopiuj polecenie", "Copy command")) {
             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("termux", Termux.SETUP_COMMAND))
             copied = true
         }
         Spacer(Modifier.height(8.dp))
-        Lead("Można je wkleić kilka razy — niczego nie zdubluje.")
+        Lead(tr("Można je wkleić kilka razy — niczego nie zdubluje.", "You can paste it several times — nothing gets duplicated."))
     }
 
     @Composable
     fun OpenTermux() {
         Termux.launchIntent(context)?.let { intent ->
             Spacer(Modifier.height(8.dp))
-            GhostButton("Otwórz Termux") { context.startActivity(intent) }
+            GhostButton(tr("Otwórz Termux", "Open Termux")) { context.startActivity(intent) }
         }
     }
 
@@ -168,13 +169,23 @@ fun TermuxSetup() {
         null -> Unit
 
         Termux.State.Ready ->
-            Lead("Polecenia z terminala CYPHR i od modelu idą do Termuksa. Masz tam swój pkg, pythona i gita.")
+            Lead(
+                tr(
+                    "Polecenia z terminala CYPHR i od modelu idą do Termuksa. Masz tam swój pkg, pythona i gita.",
+                    "Commands from the CYPHR terminal and from the model go to Termux. You have your pkg, python and git there.",
+                ),
+            )
 
         Termux.State.NotInstalled -> {
             Lead(
-                "Termux to osobna aplikacja z terminalem Linuksa. CYPHR pobierze go z F-Droid " +
-                    "(ponad 100 MB — najlepiej przez Wi-Fi), sprawdzi, że to oryginał, i otworzy " +
-                    "instalator Androida.",
+                tr(
+                    "Termux to osobna aplikacja z terminalem Linuksa. CYPHR pobierze go z F-Droid " +
+                        "(ponad 100 MB — najlepiej przez Wi-Fi), sprawdzi, że to oryginał, i otworzy " +
+                        "instalator Androida.",
+                    "Termux is a separate app with a Linux terminal. CYPHR downloads it from F-Droid " +
+                        "(over 100 MB — Wi-Fi is best), checks that it's the original and opens " +
+                        "the Android installer.",
+                ),
             )
             Spacer(Modifier.height(12.dp))
             InstallTermux(blocked = false, onInstall = ::openInstaller)
@@ -183,22 +194,40 @@ fun TermuxSetup() {
         Termux.State.NoCommandApi, Termux.State.TooOld -> {
             Lead(
                 when {
-                    Termux.isPlayBuild(status?.version) ->
+                    Termux.isPlayBuild(status?.version) -> tr(
                         "To Termux z Google Play — ta wersja nie przyjmuje poleceń od innych aplikacji " +
-                            "i nie da się tego włączyć w żadnych ustawieniach."
-                    state == Termux.State.TooOld ->
+                            "i nie da się tego włączyć w żadnych ustawieniach.",
+                        "This is Termux from Google Play — this version doesn't accept commands from other apps " +
+                            "and no setting can turn that on.",
+                    )
+                    state == Termux.State.TooOld -> tr(
                         "Masz Termuksa ${status?.version.orEmpty()} — to stara wersja, która nie odsyła " +
-                            "wyników poleceń."
-                    else -> "Ta wersja Termuksa nie przyjmuje poleceń od innych aplikacji."
-                } + " CYPHR wymieni go na Termuksa z F-Droid w dwóch krokach. Do tego czasu polecenia " +
-                    "modelu idą do powłoki Androida.",
+                            "wyników poleceń.",
+                        "You have Termux ${status?.version.orEmpty()} — an old version that doesn't send " +
+                            "command results back.",
+                    )
+                    else -> tr(
+                        "Ta wersja Termuksa nie przyjmuje poleceń od innych aplikacji.",
+                        "This Termux version doesn't accept commands from other apps.",
+                    )
+                } + tr(
+                    " CYPHR wymieni go na Termuksa z F-Droid w dwóch krokach. Do tego czasu polecenia " +
+                        "modelu idą do powłoki Androida.",
+                    " CYPHR will replace it with Termux from F-Droid in two steps. Until then the model's " +
+                        "commands go to the Android shell.",
+                ),
             )
             Spacer(Modifier.height(14.dp))
-            Text("1. Odinstaluj obecny Termux", color = Paper, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(tr("1. Odinstaluj obecny Termux", "1. Uninstall the current Termux"), color = Paper, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Spacer(Modifier.height(4.dp))
-            Lead("Android nie podmieni aplikacji podpisanej innym kluczem. Pliki w Termuksie przepadną — przenieś wcześniej, co ważne.")
+            Lead(
+                tr(
+                    "Android nie podmieni aplikacji podpisanej innym kluczem. Pliki w Termuksie przepadną — przenieś wcześniej, co ważne.",
+                    "Android won't replace an app signed with a different key. Files in Termux will be lost — move anything important first.",
+                ),
+            )
             Spacer(Modifier.height(10.dp))
-            PrimaryButton("Odinstaluj Termux") {
+            PrimaryButton(tr("Odinstaluj Termux", "Uninstall Termux")) {
                 // Nowy Termux pobiera sie w tym czasie w tle.
                 TermuxInstall.start(context)
                 try {
@@ -208,7 +237,7 @@ fun TermuxSetup() {
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Text("2. Zainstaluj właściwy", color = Paper, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(tr("2. Zainstaluj właściwy", "2. Install the right one"), color = Paper, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Spacer(Modifier.height(8.dp))
             InstallTermux(blocked = true, onInstall = ::openInstaller)
         }
@@ -216,60 +245,76 @@ fun TermuxSetup() {
         Termux.State.NoPermission -> {
             if (deniedForGood) {
                 // Nazwa dokladnie taka, jak w ustawieniach tego telefonu — nadaje ja Termux, nie CYPHR.
-                val label = remember { Termux.permissionLabel(context) } ?: "Uruchamianie poleceń w środowisku Termux"
+                val label = remember { Termux.permissionLabel(context) }
+                    ?: tr("Uruchamianie poleceń w środowisku Termux", "Run commands in Termux environment")
                 Lead(
-                    "Zgodę odrzucono na stałe, więc system nie pokaże już okna. Włącz ją ręcznie: przycisk " +
-                        "niżej → Uprawnienia → „$label” (bywa w „Dodatkowe uprawnienia” albo „Niedozwolone”) " +
-                        "→ Zezwalaj. Potem wróć i dotknij „Sprawdź połączenie”.",
+                    tr(
+                        "Zgodę odrzucono na stałe, więc system nie pokaże już okna. Włącz ją ręcznie: przycisk " +
+                            "niżej → Uprawnienia → „$label” (bywa w „Dodatkowe uprawnienia” albo „Niedozwolone”) " +
+                            "→ Zezwalaj. Potem wróć i dotknij „Sprawdź połączenie”.",
+                        "The permission was denied permanently, so the system won't show the dialog again. Turn it on " +
+                            "manually: the button below → Permissions → \"$label\" (it may be under \"Additional permissions\" " +
+                            "or \"Not allowed\") → Allow. Then come back and tap \"Check connection\".",
+                    ),
                 )
                 Spacer(Modifier.height(10.dp))
-                GhostButton("Otwórz ustawienia CYPHR") { context.startActivity(Termux.ownSettingsIntent(context)) }
+                GhostButton(tr("Otwórz ustawienia CYPHR", "Open CYPHR settings")) { context.startActivity(Termux.ownSettingsIntent(context)) }
             } else {
                 Lead(
-                    "CYPHR poprosi o zgodę sam, gdy pierwsze polecenie pójdzie do Termuksa — " +
-                        "z terminala albo od modelu. Możesz dać ją też od razu.",
+                    tr(
+                        "CYPHR poprosi o zgodę sam, gdy pierwsze polecenie pójdzie do Termuksa — " +
+                            "z terminala albo od modelu. Możesz dać ją też od razu.",
+                        "CYPHR asks for permission by itself when the first command goes to Termux — " +
+                            "from the terminal or from the model. You can also grant it right away.",
+                    ),
                 )
                 Spacer(Modifier.height(10.dp))
-                GhostButton("Daj zgodę teraz") { ask.launch(Termux.PERMISSION) }
+                GhostButton(tr("Daj zgodę teraz", "Grant permission now")) { ask.launch(Termux.PERMISSION) }
             }
         }
 
         Termux.State.ExternalAppsBlocked -> {
-            SetupCommand("Termux odrzuca polecenia z innych aplikacji. Wklej mu raz to polecenie:")
+            SetupCommand(tr("Termux odrzuca polecenia z innych aplikacji. Wklej mu raz to polecenie:", "Termux rejects commands from other apps. Paste this command into it once:"))
             OpenTermux()
         }
 
         Termux.State.NoReply -> {
             Lead(
-                "Termux nie odpowiedział. Zwykle pomaga:\n" +
-                    "1. Otwórz Termux i poczekaj, aż skończy pierwsze uruchomienie.\n" +
-                    "2. Wyłącz dla niego optymalizację baterii — Android usypia go w tle.\n" +
-                    "3. Wklej polecenie poniżej, jeśli jeszcze nie zostało wklejone.",
+                tr(
+                    "Termux nie odpowiedział. Zwykle pomaga:\n" +
+                        "1. Otwórz Termux i poczekaj, aż skończy pierwsze uruchomienie.\n" +
+                        "2. Wyłącz dla niego optymalizację baterii — Android usypia go w tle.\n" +
+                        "3. Wklej polecenie poniżej, jeśli jeszcze nie zostało wklejone.",
+                    "Termux didn't answer. This usually helps:\n" +
+                        "1. Open Termux and wait until its first start finishes.\n" +
+                        "2. Turn off battery optimization for it — Android puts it to sleep in the background.\n" +
+                        "3. Paste the command below if it hasn't been pasted yet.",
+                ),
             )
             OpenTermux()
             Spacer(Modifier.height(8.dp))
-            GhostButton("Ustawienia Termuksa (bateria)") { context.startActivity(Termux.termuxSettingsIntent()) }
+            GhostButton(tr("Ustawienia Termuksa (bateria)", "Termux settings (battery)")) { context.startActivity(Termux.termuxSettingsIntent()) }
             Spacer(Modifier.height(14.dp))
-            SetupCommand("Polecenie dla Termuksa:")
+            SetupCommand(tr("Polecenie dla Termuksa:", "Command for Termux:"))
         }
 
         Termux.State.Failed -> {
-            Lead("Termux zgłosił błąd:")
+            Lead(tr("Termux zgłosił błąd:", "Termux reported an error:"))
             Spacer(Modifier.height(8.dp))
             Text(
-                status?.detail ?: "brak szczegółów",
+                status?.detail ?: tr("brak szczegółów", "no details"),
                 color = Paper,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
             )
             Spacer(Modifier.height(14.dp))
-            SetupCommand("Jeśli to pierwsze podłączenie, wklej Termuksowi:")
+            SetupCommand(tr("Jeśli to pierwsze podłączenie, wklej Termuksowi:", "If this is the first connection, paste into Termux:"))
             OpenTermux()
         }
     }
 
     Spacer(Modifier.height(10.dp))
-    GhostButton(if (testing) "Sprawdzam…" else "Sprawdź połączenie", busy = testing) { test() }
+    GhostButton(if (testing) tr("Sprawdzam…", "Checking…") else tr("Sprawdź połączenie", "Check connection"), busy = testing) { test() }
 }
 
 /**
@@ -283,13 +328,13 @@ private fun InstallTermux(blocked: Boolean, onInstall: (java.io.File) -> Unit) {
     val step by TermuxInstall.step.collectAsState()
     when (val s = step) {
         TermuxInstall.Step.Idle ->
-            if (blocked) Lead("Pobieranie ruszy razem z odinstalowaniem — gotowy plik będzie czekał.")
-            else PrimaryButton("Zainstaluj Termux") { TermuxInstall.start(context) }
+            if (blocked) Lead(tr("Pobieranie ruszy razem z odinstalowaniem — gotowy plik będzie czekał.", "The download starts together with the uninstall — the file will be ready and waiting."))
+            else PrimaryButton(tr("Zainstaluj Termux", "Install Termux")) { TermuxInstall.start(context) }
 
         is TermuxInstall.Step.Downloading -> {
             val fraction = if (s.total > 0) (s.done.toFloat() / s.total).coerceIn(0f, 1f) else null
             Text(
-                "Pobieram Termux z F-Droid… " + TermuxInstall.progressLabel(s.done, s.total),
+                tr("Pobieram Termux z F-Droid… ", "Downloading Termux from F-Droid… ") + TermuxInstall.progressLabel(s.done, s.total),
                 color = Paper,
                 fontSize = 14.sp,
             )
@@ -309,11 +354,11 @@ private fun InstallTermux(blocked: Boolean, onInstall: (java.io.File) -> Unit) {
                 )
             }
             Spacer(Modifier.height(10.dp))
-            GhostButton("Przerwij") { TermuxInstall.cancel(context) }
+            GhostButton(tr("Przerwij", "Stop")) { TermuxInstall.cancel(context) }
         }
 
         TermuxInstall.Step.Verifying -> {
-            Lead("Sprawdzam, czy to oryginalny Termux podpisany przez F-Droid…")
+            Lead(tr("Sprawdzam, czy to oryginalny Termux podpisany przez F-Droid…", "Checking that it's the original Termux signed by F-Droid…"))
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
                 color = Paper,
@@ -324,26 +369,40 @@ private fun InstallTermux(blocked: Boolean, onInstall: (java.io.File) -> Unit) {
 
         is TermuxInstall.Step.Ready ->
             if (blocked) {
-                Lead("Termux pobrany i sprawdzony. Po odinstalowaniu obecnego zainstalujesz go jednym dotknięciem.")
+                Lead(
+                    tr(
+                        "Termux pobrany i sprawdzony. Po odinstalowaniu obecnego zainstalujesz go jednym dotknięciem.",
+                        "Termux is downloaded and checked. Once the current one is uninstalled, you install it with one tap.",
+                    ),
+                )
             } else {
                 if (!TermuxInstall.canInstall(context)) {
                     Lead(
-                        "Android zapyta, czy CYPHR może instalować aplikacje: włącz „Zezwalaj z tego źródła” " +
-                            "i wróć — instalator otworzy się sam.",
+                        tr(
+                            "Android zapyta, czy CYPHR może instalować aplikacje: włącz „Zezwalaj z tego źródła” " +
+                                "i wróć — instalator otworzy się sam.",
+                            "Android will ask whether CYPHR may install apps: turn on \"Allow from this source\" " +
+                                "and come back — the installer opens by itself.",
+                        ),
                     )
                     Spacer(Modifier.height(10.dp))
                 }
-                PrimaryButton("Zainstaluj pobrany Termux") { onInstall(s.file) }
+                PrimaryButton(tr("Zainstaluj pobrany Termux", "Install downloaded Termux")) { onInstall(s.file) }
                 Spacer(Modifier.height(8.dp))
-                Lead("Po instalacji otwórz Termux raz, poczekaj, aż się przygotuje, i wróć tutaj.")
+                Lead(
+                    tr(
+                        "Po instalacji otwórz Termux raz, poczekaj, aż się przygotuje, i wróć tutaj.",
+                        "After installing, open Termux once, wait until it's ready and come back here.",
+                    ),
+                )
             }
 
         is TermuxInstall.Step.Failed -> {
             Lead(s.message)
             Spacer(Modifier.height(10.dp))
-            PrimaryButton("Spróbuj ponownie") { TermuxInstall.start(context) }
+            PrimaryButton(tr("Spróbuj ponownie", "Try again")) { TermuxInstall.start(context) }
             Spacer(Modifier.height(8.dp))
-            GhostButton("Otwórz stronę F-Droid") { context.startActivity(TermuxInstall.pageIntent()) }
+            GhostButton(tr("Otwórz stronę F-Droid", "Open the F-Droid page")) { context.startActivity(TermuxInstall.pageIntent()) }
         }
     }
 }
@@ -363,11 +422,11 @@ fun TermuxSheet(onDismiss: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp, vertical = 16.dp),
         ) {
-            Text("Podłączenie Termuksa", color = Paper, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Text(tr("Podłączenie Termuksa", "Connecting Termux"), color = Paper, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             Spacer(Modifier.height(18.dp))
             TermuxSetup()
             Spacer(Modifier.height(10.dp))
-            GhostButton("Zamknij") { onDismiss() }
+            GhostButton(tr("Zamknij", "Close")) { onDismiss() }
         }
     }
 }

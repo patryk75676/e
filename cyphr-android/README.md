@@ -19,9 +19,22 @@ Zakładki:
   który wysyła treść otwartej strony do modelu.
 - **Konto** — imię i e-mail, biała karta z aktualnym planem (Free, Plus, Pro),
   paskiem postępu do następnego progu, sumą doładowań, saldem i zużyciem w 30 dni.
-- **Ustawienia** (ikona w prawym górnym rogu) — instrukcje dla modelu, bezpieczeństwo,
+- **Ustawienia** (ikona w prawym górnym rogu) — język, instrukcje dla modelu, bezpieczeństwo,
   przeglądarka, animacje, terminal z Termuksem i wylogowanie. Bez ustawień technicznych:
   aplikacja zawsze łączy się z serwerem z `cyphr.baseUrl`.
+
+## Język
+
+Aplikacja jest po polsku albo po angielsku. Język wybiera adres IP: przy każdym
+uruchomieniu (i po powrocie po ponad godzinie) aplikacja pyta serwer `GET /v1/geo` —
+polski adres IP daje polski, każdy inny angielski. Zanim serwer odpowie (i gdy nie umie,
+np. bez modułu `jezyk.js`), obowiązuje ostatni wynik, a przy pierwszym uruchomieniu kraj
+sieci komórkowej i język telefonu. W Ustawieniach → Język można ustawić język na stałe.
+
+Teksty są w kodzie parami, `tr("po polsku", "in English")` (`I18n.kt`). Po angielsku
+idą też instrukcje dla modelu, a domyślna instrukcja każe mu odpowiadać w języku, w którym
+pisze użytkownik. Komunikaty serwera (po polsku) aplikacja tłumaczy po kodzie błędu.
+`TranslationTest` pilnuje, żeby każde `tr` miało oba teksty, a angielski nie miał polskich liter.
 
 ## Uprawnienia
 
@@ -87,6 +100,21 @@ jedną linię do pliku startowego, przeładowuje aplikację i sprawdza ją z zew
 przy błędzie wszystko cofa. Wypięcie: `node dodaj-obrazy.js --usun`.
 Opcjonalnie w `.env`: `IMAGE_DAILY_LIMIT` (domyślnie 2), `IMAGE_MODEL`
 (domyślnie `z-image-turbo`), `IMAGE_TZ` (domyślnie `Europe/Warsaw`).
+
+## Język po IP na serwerze
+
+Kraj adresu IP rozpoznaje moduł `serwer/jezyk.js` na podstawie oficjalnych statystyk
+RIPE NCC (zakresy IPv4 i IPv6 przydzielone polskim sieciom, `jezyk-pl.json`; odświeżane
+same co 30 dni). Nie czyta `.env` ani bazy i nie zapisuje adresów. Wgraj `jezyk.js`,
+`jezyk-pl.json` i `dodaj-jezyk.js` do `~/cyphr-api` i uruchom:
+
+```
+cd ~/cyphr-api && node dodaj-jezyk.js
+```
+
+Instalator sprawdza dane na znanych adresach (polskich i zagranicznych), dopisuje jedną
+linię do pliku startowego, przeładowuje aplikację i sprawdza ją z zewnątrz — przy błędzie
+cofa zmianę. Wypięcie: `node dodaj-jezyk.js --usun`.
 
 ## 1. Ustawienia przed budowaniem
 

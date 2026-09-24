@@ -382,10 +382,13 @@ object ChatEngine {
                     update(uid, chatId) { it.copy(messages = asked) }
                     val result = when (ask(chatId, label, name, cmd)) {
                         true -> AgentTools.execute(app, cmd)
-                        false -> "Użytkownik odmówił wykonania tego polecenia."
-                        null -> "Użytkownik nie odpowiedział na prośbę o zgodę — polecenia nie wykonano."
+                        false -> tr("Użytkownik odmówił wykonania tego polecenia.", "The user refused to run this command.")
+                        null -> tr(
+                            "Użytkownik nie odpowiedział na prośbę o zgodę — polecenia nie wykonano.",
+                            "The user didn't answer the permission request — the command wasn't run.",
+                        )
                     }
-                    history = history + ChatMessage("Wynik polecenia `$cmd`:\n$result", true)
+                    history = history + ChatMessage(tr("Wynik polecenia `$cmd`:\n$result", "Output of `$cmd`:\n$result"), true)
                     val answered = history
                     update(uid, chatId) { it.copy(messages = answered) }
                     reply = talk(history)
@@ -400,11 +403,16 @@ object ChatEngine {
                 if (Prefs.agentTerminal && round >= AgentTools.MAX_ROUNDS &&
                     AgentTools.requestedCommand(reply.text) != null
                 ) {
-                    shown += "\n\n(Przerwano po ${AgentTools.MAX_ROUNDS} poleceniach. " +
-                        "Napisz „kontynuuj”, żeby pracował dalej.)"
+                    shown += tr(
+                        "\n\n(Przerwano po ${AgentTools.MAX_ROUNDS} poleceniach. Napisz „kontynuuj”, żeby pracował dalej.)",
+                        "\n\n(Stopped after ${AgentTools.MAX_ROUNDS} commands. Write \"continue\" to let it carry on.)",
+                    )
                 }
                 if (imagesDropped) {
-                    shown = "_Serwer nie przyjął obrazu, więc model widział tylko tekst._\n\n$shown"
+                    shown = tr(
+                        "_Serwer nie przyjął obrazu, więc model widział tylko tekst._",
+                        "_The server didn't accept the image, so the model only saw the text._",
+                    ) + "\n\n$shown"
                 }
                 // Cala historia z tej odpowiedzi, a nie dopisek do biezacej postaci: nawet gdy
                 // ktoras zmiana po drodze przepadla, rozmowa konczy sie kompletna.
@@ -430,8 +438,8 @@ object ChatEngine {
                     } catch (e: Exception) {
                         val why = when {
                             e is ApiError && e.code in IMAGE_ERRORS_SHOWN -> e.message
-                            e is ApiError && e.status == 404 -> "Serwer nie tworzy jeszcze obrazów."
-                            else -> "Nie udało się stworzyć obrazu. Spróbuj ponownie."
+                            e is ApiError && e.status == 404 -> tr("Serwer nie tworzy jeszcze obrazów.", "The server doesn't create images yet.")
+                            else -> tr("Nie udało się stworzyć obrazu. Spróbuj ponownie.", "Couldn't create the image. Try again.")
                         }
                         if (e is ApiError && e.code == "image_limit" && uid == owner) {
                             _images.value = _images.value?.let { it.copy(used = it.limit, left = 0) }
@@ -462,9 +470,12 @@ object ChatEngine {
                 // Chwilowa awaria modelu nie jest wina aplikacji ani salda — drugi model zwykle
                 // dziala. Wlasny tekst, bo serwerowy mowi o tym, co stoi za modelem.
                 val message = if (e is ApiError && e.code == "upstream_error") {
-                    "$name chwilowo nie odpowiada. Spróbuj ponownie albo wybierz drugi model w zakładce Agenci."
+                    tr(
+                        "$name chwilowo nie odpowiada. Spróbuj ponownie albo wybierz drugi model w zakładce Agenci.",
+                        "$name isn't responding right now. Try again or pick the other model in the Agents tab.",
+                    )
                 } else {
-                    e.message ?: "Coś poszło nie tak. Spróbuj ponownie."
+                    e.message ?: tr("Coś poszło nie tak. Spróbuj ponownie.", "Something went wrong. Try again.")
                 }
                 _events.tryEmit(Event.Message(uid, message))
                 if (!visible) {

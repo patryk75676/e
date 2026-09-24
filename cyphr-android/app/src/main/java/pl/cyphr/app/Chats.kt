@@ -22,7 +22,7 @@ data class Chat(
             messages.firstOrNull { it.fromUser }?.text
                 ?.replace('\n', ' ')?.trim()?.take(40)
                 ?.ifBlank { null }
-                ?: "Nowa rozmowa"
+                ?: tr("Nowa rozmowa", "New chat")
         }
 }
 

@@ -65,12 +65,15 @@ import androidx.compose.ui.unit.sp
 /** Podpowiedz na pustym ekranie: etykieta i poczatek wiadomosci, ktory trafia do pola. */
 private class Suggestion(val label: String, val prompt: String)
 
-private val suggestions = listOf(
-    Suggestion("Wyjaśnij prosto", "Wyjaśnij mi prosto, "),
-    Suggestion("Napisz kod", "Napisz kod, który "),
-    Suggestion("Streść tekst", "Streść ten tekst:\n"),
-    Suggestion("Zaplanuj coś", "Pomóż mi zaplanować "),
+private fun suggestions() = listOf(
+    Suggestion(tr("Wyjaśnij prosto", "Explain simply"), tr("Wyjaśnij mi prosto, ", "Explain simply: ")),
+    Suggestion(tr("Napisz kod", "Write code"), tr("Napisz kod, który ", "Write code that ")),
+    Suggestion(tr("Streść tekst", "Summarize text"), tr("Streść ten tekst:\n", "Summarize this text:\n")),
+    Suggestion(tr("Zaplanuj coś", "Plan something"), tr("Pomóż mi zaplanować ", "Help me plan ")),
 )
+
+/** Poczatek prosby o obraz — z menu „+” i z podpowiedzi na pustym ekranie. */
+private fun imageStart() = tr("Stwórz obraz: ", "Create an image: ")
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -183,7 +186,7 @@ fun ChatTab(
             IconButton(onClick = onOpenChats, modifier = Modifier.size(42.dp)) {
                 Icon(
                     painterResource(R.drawable.ic_chat),
-                    "Rozmowy",
+                    tr("Rozmowy", "Chats"),
                     tint = Paper,
                     modifier = Modifier.size(20.dp),
                 )
@@ -205,7 +208,7 @@ fun ChatTab(
                 )
             }
             Spacer(Modifier.width(10.dp))
-            ModelChip(agent ?: "Wybierz model", onClick = onPickAgent)
+            ModelChip(agent ?: tr("Wybierz model", "Choose model"), onClick = onPickAgent)
         }
 
         // Licznik ma sens dopiero, gdy jest co liczyc — w pustej rozmowie to tylko szum.
@@ -236,11 +239,11 @@ fun ChatTab(
                     ) {
                         Ghost(size = 96.dp, floating = true)
                         Spacer(Modifier.height(18.dp))
-                        Text("O co zapytasz?", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Paper)
+                        Text(tr("O co zapytasz?", "What would you like to ask?"), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Paper)
                         Spacer(Modifier.height(6.dp))
                         Lead(
-                            agent?.let { "Odpowiada $it. Rozmowa liczy się z Twojego salda." }
-                                ?: "Wybierz model, żeby zacząć.",
+                            agent?.let { tr("Odpowiada $it. Rozmowa liczy się z Twojego salda.", "$it answers. The chat is paid from your balance.") }
+                                ?: tr("Wybierz model, żeby zacząć.", "Choose a model to start."),
                             center = true,
                         )
                         Spacer(Modifier.height(22.dp))
@@ -248,7 +251,7 @@ fun ChatTab(
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            (suggestions + listOfNotNull(images?.takeIf { it.left > 0 }?.let { Suggestion("Stwórz obraz", "Stwórz obraz: ") }))
+                            (suggestions() + listOfNotNull(images?.takeIf { it.left > 0 }?.let { Suggestion(tr("Stwórz obraz", "Create an image"), imageStart()) }))
                                 .forEach { s ->
                                 Text(
                                     s.label,
@@ -323,7 +326,8 @@ fun ChatTab(
             Box(Modifier.padding(bottom = 4.dp)) {
                 AttachButton(open = menuOpen) {
                     clip = Composer.clipboardImage(context)
-                    if (canAttach) menuOpen = true else onNote("Najwyżej ${Attachments.MAX_PER_MESSAGE} załączniki w jednej wiadomości.")
+                    if (canAttach) menuOpen = true
+                    else onNote(tr("Najwyżej ${Attachments.MAX_PER_MESSAGE} załączniki w jednej wiadomości.", "At most ${Attachments.MAX_PER_MESSAGE} attachments in one message."))
                 }
                 AttachMenu(
                     expanded = menuOpen,
@@ -339,7 +343,7 @@ fun ChatTab(
                     onPaste = if (clip != null) ({ Composer.clipHandled = clip; onPaste() }) else null,
                     images = images,
                     onCreateImage = {
-                        val start = "Stwórz obraz: "
+                        val start = imageStart()
                         draft = TextFieldValue(start, TextRange(start.length))
                         input.requestFocus()
                     },
@@ -350,7 +354,7 @@ fun ChatTab(
                 value = draft,
                 onValueChange = { draft = it },
                 // Jedna linia: na waskim ekranie obok „+” podpowiedz nie moze rozpychac pola.
-                placeholder = { Text("Napisz wiadomość", color = Mist, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = { Text(tr("Napisz wiadomość", "Write a message"), color = Mist, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 maxLines = 5,
                 shape = RoundedCornerShape(26.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -384,7 +388,7 @@ fun ChatTab(
                 IconButton(onClick = send, enabled = enabled) {
                     Icon(
                         painterResource(R.drawable.ic_send),
-                        contentDescription = "Wyślij",
+                        contentDescription = tr("Wyślij", "Send"),
                         tint = sendFg,
                         modifier = Modifier.size(20.dp),
                     )
@@ -399,10 +403,13 @@ fun ChatTab(
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             containerColor = Raise,
-            title = { Text("Usunąć wiadomość?", color = Paper, fontWeight = FontWeight.Bold) },
+            title = { Text(tr("Usunąć wiadomość?", "Delete message?"), color = Paper, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Zniknie z tej rozmowy i model przestanie ją widzieć. Odpowiedź modelu zostaje.",
+                    tr(
+                        "Zniknie z tej rozmowy i model przestanie ją widzieć. Odpowiedź modelu zostaje.",
+                        "It disappears from this chat and the model stops seeing it. The model's reply stays.",
+                    ),
                     color = Mist,
                 )
             },
@@ -416,11 +423,11 @@ fun ChatTab(
                         if (index < baseline) baseline -= 1
                     }
                 }) {
-                    Text("Usuń", color = Paper, fontWeight = FontWeight.Bold)
+                    Text(tr("Usuń", "Delete"), color = Paper, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Zostaw", color = Mist) }
+                TextButton(onClick = { confirmDelete = null }) { Text(tr("Zostaw", "Keep"), color = Mist) }
             },
         )
     }
@@ -466,7 +473,7 @@ private fun ModelChip(name: String, onClick: () -> Unit) {
         }
         Icon(
             painterResource(R.drawable.ic_chevron_down),
-            contentDescription = "Zmień model",
+            contentDescription = tr("Zmień model", "Change model"),
             tint = Mist,
             modifier = Modifier.size(18.dp),
         )
@@ -488,15 +495,15 @@ private fun TokenBar(context: Int, draft: Int, last: Pair<Int, Int>?, folded: In
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "≈ $total tok. w zapytaniu" +
+            tr("≈ $total tok. w zapytaniu", "≈ $total tok. in request") +
                 (if (draft > 0) "  (+$draft)" else "") +
-                (if (folded > 0) "  ·  $folded zwinięte" else ""),
+                (if (folded > 0) tr("  ·  $folded zwinięte", "  ·  $folded folded") else ""),
             color = Mist,
             fontSize = 12.sp,
             modifier = Modifier.graphicsLayer { alpha = grow },
         )
         if (last != null) {
-            Text("ostatnia: ${last.first} → ${last.second}", color = Mist, fontSize = 12.sp)
+            Text(tr("ostatnia: ${last.first} → ${last.second}", "last: ${last.first} → ${last.second}"), color = Mist, fontSize = 12.sp)
         }
     }
 }
@@ -583,7 +590,7 @@ private fun Bubble(
                             .combinedClickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = rememberRipple(color = Ink),
-                                onClickLabel = "Pokaż opcje wiadomości",
+                                onClickLabel = tr("Pokaż opcje wiadomości", "Show message options"),
                                 onLongClick = onToggleActions,
                                 onClick = onToggleActions,
                             )
@@ -613,7 +620,7 @@ private fun Bubble(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (hasText) CopyButton(full)
-                    if (canDelete) ActionButton(R.drawable.ic_delete, "Usuń", onClick = onDelete)
+                    if (canDelete) ActionButton(R.drawable.ic_delete, tr("Usuń", "Delete"), onClick = onDelete)
                 }
             }
         } else if (!caret && hasText) {
@@ -668,7 +675,7 @@ private fun CopyButton(text: String) {
                     modifier = Modifier.size(15.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(if (done) "Skopiowano" else "Kopiuj", color = Mist, fontSize = 12.sp)
+                Text(if (done) tr("Skopiowano", "Copied") else tr("Kopiuj", "Copy"), color = Mist, fontSize = 12.sp)
             }
         }
     }
@@ -781,7 +788,7 @@ private fun TypingBubble(agent: String?) {
         }
         if (agent != null) {
             Spacer(Modifier.width(12.dp))
-            Text("$agent myśli…", color = Mist, fontSize = 13.sp)
+            Text(tr("$agent myśli…", "$agent is thinking…"), color = Mist, fontSize = 13.sp)
         }
     }
 }

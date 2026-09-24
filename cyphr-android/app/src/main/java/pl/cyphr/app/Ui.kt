@@ -32,7 +32,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.util.Locale
 
 val Ink = Color(0xFF000000)
 val Paper = Color(0xFFFFFFFF)
@@ -64,10 +63,10 @@ fun <T> motionSpring(damping: Float = 0.7f, stiffness: Float = 420f): FiniteAnim
 
 fun usd(value: Double): String {
     val digits = if (value > 0 && value < 0.01) 4 else 2
-    return String.format(Locale("pl", "PL"), "%,.${digits}f USD", value)
+    return String.format(appLocale, "%,.${digits}f USD", value)
 }
 
-fun int(value: Long): String = String.format(Locale("pl", "PL"), "%,d", value)
+fun int(value: Long): String = String.format(appLocale, "%,d", value)
 
 /** Logo. Unosi sie w gorze i w dole, gdy floating = true. */
 @Composable
@@ -101,7 +100,7 @@ private fun GhostSpinner() {
     if (!Prefs.animations) {
         Icon(
             painter = painterResource(R.drawable.ghost),
-            contentDescription = "Czekaj",
+            contentDescription = tr("Czekaj", "Please wait"),
             tint = LocalContentColor.current,
             modifier = Modifier.size(24.dp),
         )
@@ -115,7 +114,7 @@ private fun GhostSpinner() {
     )
     Icon(
         painter = painterResource(R.drawable.ghost),
-        contentDescription = "Czekaj",
+        contentDescription = tr("Czekaj", "Please wait"),
         tint = LocalContentColor.current,
         modifier = Modifier.size(24.dp).graphicsLayer { translationY = (3f - 6f * k) * density },
     )
@@ -201,7 +200,7 @@ fun Field(
                     IconButton(onClick = { widoczne = !widoczne }) {
                         Icon(
                             painterResource(if (widoczne) R.drawable.ic_eye_off else R.drawable.ic_eye),
-                            contentDescription = if (widoczne) "Ukryj hasło" else "Pokaż hasło",
+                            contentDescription = if (widoczne) tr("Ukryj hasło", "Hide password") else tr("Pokaż hasło", "Show password"),
                             tint = Mist,
                             modifier = Modifier.size(19.dp),
                         )
@@ -280,8 +279,8 @@ fun Segmented(register: Boolean, onChange: (Boolean) -> Unit) {
                 .background(Paper, RoundedCornerShape(50)),
         )
         Row(Modifier.fillMaxSize()) {
-            SegLabel("Logowanie", !register, Modifier.weight(1f)) { onChange(false) }
-            SegLabel("Nowe konto", register, Modifier.weight(1f)) { onChange(true) }
+            SegLabel(tr("Logowanie", "Sign in"), !register, Modifier.weight(1f)) { onChange(false) }
+            SegLabel(tr("Nowe konto", "New account"), register, Modifier.weight(1f)) { onChange(true) }
         }
     }
 }
@@ -347,11 +346,11 @@ fun PermissionDialog(
         confirmButton = {
             Row {
                 if (allowAlways) {
-                    TextButton(onClick = onAllowAlways) { Text("Zawsze", color = Mist) }
+                    TextButton(onClick = onAllowAlways) { Text(tr("Zawsze", "Always"), color = Mist) }
                 }
-                TextButton(onClick = onAllowOnce) { Text("Zezwól", color = Paper, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onAllowOnce) { Text(tr("Zezwól", "Allow"), color = Paper, fontWeight = FontWeight.Bold) }
             }
         },
-        dismissButton = { TextButton(onClick = onDeny) { Text("Odrzuć", color = Mist) } },
+        dismissButton = { TextButton(onClick = onDeny) { Text(tr("Odrzuć", "Deny"), color = Mist) } },
     )
 }

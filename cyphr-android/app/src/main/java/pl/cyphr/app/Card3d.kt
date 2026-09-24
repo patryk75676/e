@@ -102,7 +102,7 @@ private fun CardFront(label: String, amount: String, holder: String) {
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
             Column {
-                Text("KWOTA", color = Mist, fontSize = 11.sp)
+                Text(tr("KWOTA", "AMOUNT"), color = Mist, fontSize = 11.sp)
                 Text(amount, color = Paper, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
             }
             if (holder.isNotBlank()) {
@@ -134,7 +134,7 @@ private fun CardBack() {
             ) { Text("CVV ***", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
         }
         Text(
-            "Płatność testowa. Żadne prawdziwe środki nie są pobierane.",
+            tr("Płatność testowa. Żadne prawdziwe środki nie są pobierane.", "Test payment. No real money is charged."),
             color = Mist, fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 22.dp),
         )

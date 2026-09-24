@@ -29,12 +29,25 @@ object Prefs {
     private const val FILE = "cyphr"
     private lateinit var app: Context
 
-    const val DEFAULT_PROMPT =
+    const val DEFAULT_PROMPT_PL =
         "Jesteś agentem w aplikacji CYPHR. Odpowiadasz po polsku, zwięźle i rzeczowo.\n" +
             "Dostajesz pełną historię rozmowy — czytaj ją i trzymaj się wątku, nie zaczynaj od nowa " +
             "przy każdej wiadomości i nie powtarzaj tego, co już zostało ustalone.\n" +
             "Gdy pytanie odnosi się do czegoś wcześniejszego, odnieś się do tego wprost.\n" +
             "Jeśli czegoś nie wiesz albo brakuje Ci danych, powiedz to zamiast zgadywać."
+
+    const val DEFAULT_PROMPT_EN =
+        "You are an agent in the CYPHR app. Reply in the language the user writes in, concisely and to the point.\n" +
+            "You get the full conversation history — read it and stay on topic; don't start over " +
+            "with every message and don't repeat what has already been settled.\n" +
+            "When a question refers to something earlier, address it directly.\n" +
+            "If you don't know something or lack the data, say so instead of guessing."
+
+    /** Domyslna instrukcja w jezyku aplikacji. */
+    val defaultPrompt: String get() = tr(DEFAULT_PROMPT_PL, DEFAULT_PROMPT_EN)
+
+    /** Czy to ktoras z domyslnych instrukcji (po polsku albo po angielsku) — takich nie zapisujemy. */
+    fun isDefaultPrompt(value: String): Boolean = value.trim().let { it == DEFAULT_PROMPT_PL || it == DEFAULT_PROMPT_EN }
 
     private val _homePage = mutableStateOf<String>("https://duckduckgo.com")
     val homePage: String get() = _homePage.value
@@ -45,9 +58,16 @@ object Prefs {
     private val _agent = mutableStateOf<String?>(null)
     val agent: String? get() = _agent.value
 
-    /** Instrukcja wysylana jako wiadomosc "system" przed kazda rozmowa. */
-    private val _systemPrompt = mutableStateOf(DEFAULT_PROMPT)
-    val systemPrompt: String get() = _systemPrompt.value
+    /**
+     * Instrukcja wysylana jako wiadomosc "system" przed kazda rozmowa. Null — domyslna,
+     * w jezyku aplikacji; zapisana zostaje tylko wlasna instrukcja uzytkownika.
+     */
+    private val _customPrompt = mutableStateOf<String?>(null)
+    val systemPrompt: String get() = _customPrompt.value ?: defaultPrompt
+
+    /** Jezyk wybrany recznie w Ustawieniach; null — automatycznie, po adresie IP. */
+    private val _langChoice = mutableStateOf<Lang?>(null)
+    val langChoice: Lang? get() = _langChoice.value
 
     /**
      * Pytania o zgode. Zapis pliku, polecenia groźne i wysylka strony do modelu
@@ -101,7 +121,8 @@ object Prefs {
         _animations.value = sp.getBoolean("animations", true)
         _desktopMode.value = sp.getBoolean("desktop_mode", false)
         _agent.value = sp.getString("agent", null)
-        _systemPrompt.value = sp.getString("system_prompt", null) ?: DEFAULT_PROMPT
+        _customPrompt.value = sp.getString("system_prompt", null)?.takeUnless { isDefaultPrompt(it) }
+        _langChoice.value = Lang.of(sp.getString("lang", null))
         _askCommands.value = sp.getBoolean("ask_cmd", true)
         _agentTerminal.value = sp.getBoolean("agent_terminal", true)
         _appLock.value = sp.getBoolean("app_lock", true)
@@ -166,9 +187,20 @@ object Prefs {
     fun setTermuxPrompted(version: String) = edit { putString("termux_prompted", version) }
 
     fun setSystemPrompt(value: String) {
-        _systemPrompt.value = value.trim().ifBlank { DEFAULT_PROMPT }
-        edit { putString("system_prompt", _systemPrompt.value) }
+        val custom = value.trim().takeUnless { it.isBlank() || isDefaultPrompt(it) }
+        _customPrompt.value = custom
+        edit { if (custom == null) remove("system_prompt") else putString("system_prompt", custom) }
     }
+
+    fun setLangChoice(lang: Lang?) {
+        _langChoice.value = lang
+        edit { if (lang == null) remove("lang") else putString("lang", lang.code) }
+    }
+
+    /** Jezyk ustalony ostatnio po adresie IP i kiedy. */
+    val langByIp: Lang? get() = Lang.of(sp.getString("lang_ip", null))
+    val langByIpAt: Long get() = sp.getLong("lang_ip_at", 0L)
+    fun setLangByIp(lang: Lang, at: Long) = edit { putString("lang_ip", lang.code).putLong("lang_ip_at", at) }
 
     /** Czy aplikacja juz raz zapytala o powiadomienia — odmowy nie ponawiamy. */
     val notificationsAsked: Boolean
@@ -193,120 +225,162 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp),
     ) {
-        SectionTitle("Ustawienia", Modifier.padding(top = 6.dp, bottom = 18.dp))
+        SectionTitle(tr("Ustawienia", "Settings"), Modifier.padding(top = 6.dp, bottom = 18.dp))
 
-        Group("Czat") {
+        Group(tr("Język", "Language")) {
+            LanguagePicker()
+        }
+
+        Group(tr("Czat", "Chat")) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Model", color = Mist)
-                Text(agentName ?: "nie wybrano", color = Paper, fontWeight = FontWeight.Bold)
+                Text(tr("Model", "Model"), color = Mist)
+                Text(agentName ?: tr("nie wybrano", "not chosen"), color = Paper, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(16.dp))
-            Field(prompt, "Twoje instrukcje dla modelu", { prompt = it; promptSaved = false }, lines = 6)
+            // Domyslna instrukcja zmienia jezyk razem z aplikacja — nieruszone pole idzie za nia.
+            val lang = Lang.current
+            LaunchedEffect(lang) { if (Prefs.isDefaultPrompt(prompt)) prompt = Prefs.systemPrompt }
+            Field(prompt, tr("Twoje instrukcje dla modelu", "Your instructions for the model"), { prompt = it; promptSaved = false }, lines = 6)
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GhostButton(if (promptSaved) "Zapisano" else "Zapisz", Modifier.weight(1f)) {
+                GhostButton(if (promptSaved) tr("Zapisano", "Saved") else tr("Zapisz", "Save"), Modifier.weight(1f)) {
                     Prefs.setSystemPrompt(prompt); prompt = Prefs.systemPrompt; promptSaved = true
                 }
-                GhostButton("Domyślne", Modifier.weight(1f)) {
-                    Prefs.setSystemPrompt(Prefs.DEFAULT_PROMPT); prompt = Prefs.systemPrompt; promptSaved = false
+                GhostButton(tr("Domyślne", "Default"), Modifier.weight(1f)) {
+                    Prefs.setSystemPrompt(""); prompt = Prefs.systemPrompt; promptSaved = false
                 }
             }
             Spacer(Modifier.height(10.dp))
             Lead(
-                "Model bierze je pod uwagę w każdej rozmowie. Długie rozmowy są same streszczane, " +
-                    "żeby każda kolejna wiadomość nie kosztowała coraz więcej.",
+                tr(
+                    "Model bierze je pod uwagę w każdej rozmowie. Długie rozmowy są same streszczane, " +
+                        "żeby każda kolejna wiadomość nie kosztowała coraz więcej.",
+                    "The model takes them into account in every chat. Long chats are summarized " +
+                        "automatically, so each new message doesn't cost more and more.",
+                ),
             )
             Spacer(Modifier.height(16.dp))
             NewChatPicker()
         }
 
-        Group("Bezpieczeństwo") {
+        Group(tr("Bezpieczeństwo", "Security")) {
             val bio = Biometrics.state(LocalContext.current)
-            val method = (bio as? Biometrics.State.Ready)?.instrumental ?: "blokadą ekranu"
+            val method = (bio as? Biometrics.State.Ready)?.instrumental ?: tr("blokadą ekranu", "your screen lock")
             Lead(
                 when (bio) {
-                    is Biometrics.State.Ready ->
-                        "Drugi składnik logowania na tym telefonie: $method. Po zalogowaniu kontem Google albo hasłem konto otwiera się dopiero po potwierdzeniu i tego nie da się wyłączyć."
-                    Biometrics.State.NotEnrolled ->
+                    is Biometrics.State.Ready -> tr(
+                        "Drugi składnik logowania na tym telefonie: $method. Po zalogowaniu kontem Google albo hasłem konto otwiera się dopiero po potwierdzeniu i tego nie da się wyłączyć.",
+                        "Second sign-in factor on this phone: $method. After signing in with Google or a password, the account opens only after you confirm — and this can't be turned off.",
+                    )
+                    Biometrics.State.NotEnrolled -> tr(
                         "Ten telefon nie ma jeszcze ustawionej blokady ekranu. Bez niej nie da się zalogować " +
-                            "ani przełączyć konta — drugi składnik jest obowiązkowy."
-                    Biometrics.State.None ->
-                        "To urządzenie nie obsługuje potwierdzania tożsamości, więc nowe logowanie nie przejdzie."
+                            "ani przełączyć konta — drugi składnik jest obowiązkowy.",
+                        "This phone has no screen lock set up yet. Without it you can't sign in " +
+                            "or switch accounts — the second factor is mandatory.",
+                    )
+                    Biometrics.State.None -> tr(
+                        "To urządzenie nie obsługuje potwierdzania tożsamości, więc nowe logowanie nie przejdzie.",
+                        "This device can't confirm your identity, so a new sign-in won't go through.",
+                    )
                     Biometrics.State.Unavailable ->
-                        "Czytnik jest chwilowo niedostępny."
+                        tr("Czytnik jest chwilowo niedostępny.", "The sensor is temporarily unavailable.")
                 },
             )
             if (bio is Biometrics.State.NotEnrolled) {
                 Spacer(Modifier.height(12.dp))
                 val ctx = LocalContext.current
-                GhostButton("Ustaw blokadę ekranu") { ctx.startActivity(Biometrics.enrollIntent()) }
+                GhostButton(tr("Ustaw blokadę ekranu", "Set up screen lock")) { ctx.startActivity(Biometrics.enrollIntent()) }
             }
             Spacer(Modifier.height(14.dp))
-            Toggle("Pytaj o odcisk przy otwieraniu", Prefs.appLock) { Prefs.setAppLock(it) }
+            Toggle(tr("Pytaj o odcisk przy otwieraniu", "Ask for fingerprint when opening"), Prefs.appLock) { Prefs.setAppLock(it) }
             Spacer(Modifier.height(14.dp))
             LockAfterPicker()
             Spacer(Modifier.height(14.dp))
-            Toggle("Potwierdzaj zakupy", Prefs.confirmBuy) { Prefs.setConfirmBuy(it) }
+            Toggle(tr("Potwierdzaj zakupy", "Confirm purchases"), Prefs.confirmBuy) { Prefs.setConfirmBuy(it) }
             Spacer(Modifier.height(14.dp))
             if (!SecureStore.encrypted) {
                 Lead(
-                    "Uwaga: szyfrowany schowek nie wstał na tym urządzeniu. Token sesji jest trzymany " +
-                        "tylko w pamięci i zniknie po zamknięciu aplikacji — nie trafia na dysk bez " +
-                        "szyfrowania. Trzeba będzie logować się za każdym razem.",
+                    tr(
+                        "Uwaga: szyfrowany schowek nie wstał na tym urządzeniu. Token sesji jest trzymany " +
+                            "tylko w pamięci i zniknie po zamknięciu aplikacji — nie trafia na dysk bez " +
+                            "szyfrowania. Trzeba będzie logować się za każdym razem.",
+                        "Note: the encrypted storage didn't start on this device. The session token is kept " +
+                            "in memory only and disappears when the app closes — it never goes to disk " +
+                            "unencrypted. You'll have to sign in every time.",
+                    ),
                 )
                 Spacer(Modifier.height(14.dp))
             }
-            Toggle("Blokuj zrzuty ekranu w całej aplikacji", Prefs.secureScreen) { Prefs.setSecureScreen(it) }
+            Toggle(tr("Blokuj zrzuty ekranu w całej aplikacji", "Block screenshots in the whole app"), Prefs.secureScreen) { Prefs.setSecureScreen(it) }
             Spacer(Modifier.height(4.dp))
-            Lead("Logowanie i rejestracja są chronione zawsze — tam zrzut wyniósłby hasło poza telefon. To ustawienie dotyczy pozostałych ekranów.")
+            Lead(
+                tr(
+                    "Logowanie i rejestracja są chronione zawsze — tam zrzut wyniósłby hasło poza telefon. To ustawienie dotyczy pozostałych ekranów.",
+                    "Sign-in and sign-up are always protected — a screenshot there would carry your password off the phone. This setting covers the other screens.",
+                ),
+            )
         }
 
-        Group("Przeglądarka") {
-            Field(home, "Strona startowa", { home = it; homeSaved = false })
+        Group(tr("Przeglądarka", "Browser")) {
+            Field(home, tr("Strona startowa", "Home page"), { home = it; homeSaved = false })
             Spacer(Modifier.height(10.dp))
-            GhostButton(if (homeSaved) "Zapisano" else "Zapisz stronę") {
+            GhostButton(if (homeSaved) tr("Zapisano", "Saved") else tr("Zapisz stronę", "Save page")) {
                 Prefs.setHomePage(home); home = Prefs.homePage; homeSaved = true
             }
             Spacer(Modifier.height(14.dp))
-            Toggle("Widok komputera", Prefs.desktopMode) { Prefs.setDesktopMode(it) }
+            Toggle(tr("Widok komputera", "Desktop view"), Prefs.desktopMode) { Prefs.setDesktopMode(it) }
             Spacer(Modifier.height(14.dp))
-            GhostButton(if (cleared) "Wyczyszczono" else "Wyczyść ciasteczka i pamięć") {
+            GhostButton(if (cleared) tr("Wyczyszczono", "Cleared") else tr("Wyczyść ciasteczka i pamięć", "Clear cookies and storage")) {
                 CookieManager.getInstance().removeAllCookies(null)
                 WebStorage.getInstance().deleteAllData()
                 cleared = true
             }
         }
 
-        Group("Wygląd") {
-            Toggle("Animacje", Prefs.animations) { Prefs.setAnimations(it) }
+        Group(tr("Wygląd", "Appearance")) {
+            Toggle(tr("Animacje", "Animations"), Prefs.animations) { Prefs.setAnimations(it) }
             Spacer(Modifier.height(4.dp))
-            Lead("Wyłączone animacje zatrzymują wszystkie ruchy: duszka, kartę, przejścia i dymki.")
+            Lead(
+                tr(
+                    "Wyłączone animacje zatrzymują wszystkie ruchy: duszka, kartę, przejścia i dymki.",
+                    "With animations off, everything stops moving: the ghost, the card, transitions and bubbles.",
+                ),
+            )
         }
 
-        Group("Terminal") {
+        Group(tr("Terminal", "Terminal")) {
             TermuxSetup()
             Spacer(Modifier.height(18.dp))
             HorizontalDivider(color = Line, thickness = 1.dp)
             Spacer(Modifier.height(16.dp))
-            Toggle("Model może wykonywać polecenia", Prefs.agentTerminal) { Prefs.setAgentTerminal(it) }
+            Toggle(tr("Model może wykonywać polecenia", "The model can run commands"), Prefs.agentTerminal) { Prefs.setAgentTerminal(it) }
             Spacer(Modifier.height(6.dp))
             Lead(
-                "Model może poprosić o uruchomienie polecenia w terminalu i przeczytać wynik. " +
-                    "Każde polecenie potwierdzasz osobno i możesz odmówić. " +
-                    "Idzie do Termuxa, jeśli jest połączony, inaczej do powłoki Androida.",
+                tr(
+                    "Model może poprosić o uruchomienie polecenia w terminalu i przeczytać wynik. " +
+                        "Każde polecenie potwierdzasz osobno i możesz odmówić. " +
+                        "Idzie do Termuxa, jeśli jest połączony, inaczej do powłoki Androida.",
+                    "The model can ask to run a command in the terminal and read the result. " +
+                        "You confirm each command separately and can refuse. " +
+                        "It goes to Termux if it's connected, otherwise to the Android shell.",
+                ),
             )
             Spacer(Modifier.height(16.dp))
-            Toggle("Pytaj przed każdym poleceniem", Prefs.askCommands) { Prefs.setAskCommands(it) }
+            Toggle(tr("Pytaj przed każdym poleceniem", "Ask before every command"), Prefs.askCommands) { Prefs.setAskCommands(it) }
             Spacer(Modifier.height(6.dp))
             Lead(
-                "Zapis pliku, polecenia groźne (rm, mv, chmod, dd, przekierowania) oraz wysłanie " +
-                    "treści strony do modelu pytają zawsze. Nie ma trybu, który to wyłącza.",
+                tr(
+                    "Zapis pliku, polecenia groźne (rm, mv, chmod, dd, przekierowania) oraz wysłanie " +
+                        "treści strony do modelu pytają zawsze. Nie ma trybu, który to wyłącza.",
+                    "Saving a file, dangerous commands (rm, mv, chmod, dd, redirections) and sending " +
+                        "a page's content to the model always ask. There's no mode that turns this off.",
+                ),
             )
             Spacer(Modifier.height(16.dp))
-            GhostButton("Otwórz terminal", onClick = onTerminal)
+            GhostButton(tr("Otwórz terminal", "Open terminal"), onClick = onTerminal)
         }
 
-        GhostButton("Wyloguj się", onClick = onLogout)
+        GhostButton(tr("Wyloguj się", "Sign out"), onClick = onLogout)
         Spacer(Modifier.height(18.dp))
         Lead("CYPHR ${BuildConfig.VERSION_NAME}", Modifier.fillMaxWidth(), center = true)
         Spacer(Modifier.height(30.dp))
@@ -320,18 +394,22 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
 @Composable
 private fun LockAfterPicker() {
     ChoiceChips(
-        title = "Pyta ponownie po",
+        title = tr("Pyta ponownie po", "Asks again after"),
         options = listOf(
             60 to "1 min",
             900 to "15 min",
-            3600 to "1 godz.",
-            DAY_SECONDS to "24 godz.",
-            3 * DAY_SECONDS to "3 dni",
+            3600 to tr("1 godz.", "1 h"),
+            DAY_SECONDS to tr("24 godz.", "24 h"),
+            3 * DAY_SECONDS to tr("3 dni", "3 days"),
         ),
         selected = Prefs.lockAfterSeconds,
         onPick = { Prefs.setLockAfter(it) },
-        note = "Liczy się od ostatniego użycia aplikacji — także po jej zamknięciu. Nowe logowanie " +
-            "i wejście na inne konto potwierdzasz odciskiem zawsze, niezależnie od tego ustawienia.",
+        note = tr(
+            "Liczy się od ostatniego użycia aplikacji — także po jej zamknięciu. Nowe logowanie " +
+                "i wejście na inne konto potwierdzasz odciskiem zawsze, niezależnie od tego ustawienia.",
+            "Counted from the last time you used the app — also after closing it. A new sign-in " +
+                "and switching to another account always need your fingerprint, whatever this is set to.",
+        ),
     )
 }
 
@@ -339,17 +417,47 @@ private fun LockAfterPicker() {
 @Composable
 private fun NewChatPicker() {
     ChoiceChips(
-        title = "Nowa rozmowa po przerwie",
+        title = tr("Nowa rozmowa po przerwie", "New chat after a break"),
         options = listOf(
-            0 to "Nigdy",
+            0 to tr("Nigdy", "Never"),
             1800 to "30 min",
-            3600 to "1 godz.",
-            DAY_SECONDS to "24 godz.",
+            3600 to tr("1 godz.", "1 h"),
+            DAY_SECONDS to tr("24 godz.", "24 h"),
         ),
         selected = Prefs.newChatAfterSeconds,
         onPick = { Prefs.setNewChatAfter(it) },
-        note = "Po takiej przerwie CYPHR otwiera się na pustej rozmowie, a poprzednie czekają na liście. " +
-            "Po krótszej wracasz do ostatniej rozmowy. Odpowiedź, która przyszła w tle, otwiera się zawsze.",
+        note = tr(
+            "Po takiej przerwie CYPHR otwiera się na pustej rozmowie, a poprzednie czekają na liście. " +
+                "Po krótszej wracasz do ostatniej rozmowy. Odpowiedź, która przyszła w tle, otwiera się zawsze.",
+            "After a break this long, CYPHR opens on an empty chat and the previous ones wait in the list. " +
+                "After a shorter one you're back in your last chat. A reply that arrived in the background always opens.",
+        ),
+    )
+}
+
+/**
+ * Jezyk aplikacji: automatycznie po adresie IP (polski dla polskich adresow, angielski dla
+ * pozostalych) albo na stale wybrany tutaj.
+ */
+@Composable
+private fun LanguagePicker() {
+    val context = LocalContext.current
+    ChoiceChips(
+        title = tr("Język aplikacji", "App language"),
+        options = listOf(0 to tr("Według IP", "By IP"), 1 to "Polski", 2 to "English"),
+        selected = when (Prefs.langChoice) { null -> 0; Lang.PL -> 1; Lang.EN -> 2 },
+        onPick = { LangPick.choose(context, when (it) { 1 -> Lang.PL; 2 -> Lang.EN; else -> null }) },
+        note = if (Prefs.langChoice == null) {
+            tr(
+                "Polski dla polskiego adresu IP, angielski dla pozostałych. Sprawdzane przy każdym uruchomieniu.",
+                "Polish for a Polish IP address, English for all others. Checked every time the app starts.",
+            )
+        } else {
+            tr(
+                "Ustawiony na stałe — adres IP nie zmienia języka.",
+                "Set permanently — your IP address doesn't change the language.",
+            )
+        },
     )
 }
 

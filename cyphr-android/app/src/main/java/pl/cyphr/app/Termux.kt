@@ -143,8 +143,10 @@ object Termux {
             "echo 'allow-external-apps = true' >> ~/.termux/termux.properties"
 
     /** Krotkie wyjasnienie dla Termuksa bez zgody RUN_COMMAND (wersja z Google Play). */
-    const val NO_COMMAND_API =
-        "Ten Termux (z Google Play) nie przyjmuje poleceń od innych aplikacji. Potrzebny jest Termux z F-Droid."
+    fun noCommandApi(): String = tr(
+        "Ten Termux (z Google Play) nie przyjmuje poleceń od innych aplikacji. Potrzebny jest Termux z F-Droid.",
+        "This Termux (from Google Play) doesn't accept commands from other apps. You need Termux from F-Droid.",
+    )
 
     /** Polecenie, ktore uzytkownik wkleja w Termuxie, zeby wpuscil polecenia z zewnatrz. */
     const val SETUP_COMMAND = "$SETUP_PROPERTIES && termux-reload-settings"
@@ -278,7 +280,7 @@ object Termux {
                 stdout = "",
                 stderr = "",
                 exitCode = -1,
-                errMsg = NO_COMMAND_API,
+                errMsg = noCommandApi(),
                 failure = Failure.TermuxError,
             )
         }
@@ -288,7 +290,10 @@ object Termux {
                 stdout = "",
                 stderr = "",
                 exitCode = -1,
-                errMsg = "Ta wersja Termuksa jest za stara i nie odsyła wyników. Potrzebna 0.109 lub nowsza z F-Droid.",
+                errMsg = tr(
+                    "Ta wersja Termuksa jest za stara i nie odsyła wyników. Potrzebna 0.109 lub nowsza z F-Droid.",
+                    "This Termux version is too old and doesn't send results back. You need 0.109 or newer from F-Droid.",
+                ),
                 failure = Failure.TermuxError,
             )
         }
@@ -297,7 +302,7 @@ object Termux {
                 stdout = "",
                 stderr = "",
                 exitCode = -1,
-                errMsg = "Termux nie odpowiedział w ${timeoutMs / 1000} s.",
+                errMsg = tr("Termux nie odpowiedział w ${timeoutMs / 1000} s.", "Termux didn't answer within ${timeoutMs / 1000} s."),
                 failure = Failure.NoReply,
             )
     }
@@ -384,11 +389,13 @@ object Termux {
                 } else {
                     context.startService(intent)
                 }
-                if (started == null) fail(Failure.NotStarted, "Nie znaleziono usługi Termuxa — za stara albo zmieniona wersja.")
+                if (started == null) {
+                    fail(Failure.NotStarted, tr("Nie znaleziono usługi Termuxa — za stara albo zmieniona wersja.", "Termux's service wasn't found — the version is too old or modified."))
+                }
             } catch (e: SecurityException) {
-                fail(Failure.NoPermission, "Brak uprawnienia do sterowania Termuxem.")
+                fail(Failure.NoPermission, tr("Brak uprawnienia do sterowania Termuxem.", "No permission to control Termux."))
             } catch (e: Exception) {
-                fail(Failure.NotStarted, "Android nie uruchomił Termuxa: ${e.message}")
+                fail(Failure.NotStarted, tr("Android nie uruchomił Termuxa: ${e.message}", "Android didn't start Termux: ${e.message}"))
             }
 
             cont.invokeOnCancellation {

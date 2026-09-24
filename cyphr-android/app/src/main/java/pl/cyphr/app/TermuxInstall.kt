@@ -96,8 +96,12 @@ object TermuxInstall {
                 if (!genuine(pkg, signers)) {
                     got.delete()
                     _step.value = Step.Failed(
-                        "Pobrany plik nie jest oryginalnym Termuksem z F-Droid — został usunięty. " +
-                            "Spróbuj ponownie albo pobierz Termuksa ze strony F-Droid.",
+                        tr(
+                            "Pobrany plik nie jest oryginalnym Termuksem z F-Droid — został usunięty. " +
+                                "Spróbuj ponownie albo pobierz Termuksa ze strony F-Droid.",
+                            "The downloaded file isn't the original Termux from F-Droid — it was deleted. " +
+                                "Try again or get Termux from the F-Droid website.",
+                        ),
                     )
                     return@launch
                 }
@@ -111,9 +115,12 @@ object TermuxInstall {
                 if (!isActive) return@launch
                 _step.value = Step.Failed(
                     when (e) {
-                        is InstallError -> e.message ?: "Nie udało się pobrać Termuksa."
-                        is IOException -> "Nie udało się pobrać Termuksa. Sprawdź internet i spróbuj ponownie."
-                        else -> "Nie udało się pobrać Termuksa. Spróbuj ponownie."
+                        is InstallError -> e.message ?: tr("Nie udało się pobrać Termuksa.", "Couldn't download Termux.")
+                        is IOException -> tr(
+                            "Nie udało się pobrać Termuksa. Sprawdź internet i spróbuj ponownie.",
+                            "Couldn't download Termux. Check your internet connection and try again.",
+                        )
+                        else -> tr("Nie udało się pobrać Termuksa. Spróbuj ponownie.", "Couldn't download Termux. Try again.")
                     },
                 )
             }
@@ -156,20 +163,25 @@ object TermuxInstall {
     private suspend fun download(context: Context, progress: (Long, Long) -> Unit): File {
         val active = kotlin.coroutines.coroutineContext
         val version = execute(Request.Builder().url(apiUrl).build()).use { r ->
-            if (!r.isSuccessful) throw InstallError("F-Droid chwilowo nie odpowiada. Spróbuj za chwilę.")
+            if (!r.isSuccessful) throw InstallError(tr("F-Droid chwilowo nie odpowiada. Spróbuj za chwilę.", "F-Droid isn't responding right now. Try again in a moment."))
             pickVersion(r.body?.string().orEmpty())
-        } ?: throw InstallError("F-Droid nie podał wersji Termuksa. Spróbuj za chwilę.")
+        } ?: throw InstallError(tr("F-Droid nie podał wersji Termuksa. Spróbuj za chwilę.", "F-Droid didn't give a Termux version. Try again in a moment."))
 
         val dir = File(context.cacheDir, DIR).apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val part = File(dir, "com.termux_$version.apk.part")
         val done = File(dir, "com.termux_$version.apk")
         execute(Request.Builder().url(String.format(java.util.Locale.ROOT, apkUrl, version)).build()).use { r ->
-            if (!r.isSuccessful) throw InstallError("F-Droid chwilowo nie oddaje pliku Termuksa. Spróbuj za chwilę.")
+            if (!r.isSuccessful) throw InstallError(tr("F-Droid chwilowo nie oddaje pliku Termuksa. Spróbuj za chwilę.", "F-Droid isn't serving the Termux file right now. Try again in a moment."))
             val body = r.body ?: throw IOException("pusta odpowiedz")
             val total = body.contentLength()
             if (total > 0 && dir.usableSpace < total + MIN_FREE_BYTES) {
-                throw InstallError("Za mało miejsca w telefonie — Termux potrzebuje ok. ${(total + MIN_FREE_BYTES) / 1048576} MB.")
+                throw InstallError(
+                    tr(
+                        "Za mało miejsca w telefonie — Termux potrzebuje ok. ${(total + MIN_FREE_BYTES) / 1048576} MB.",
+                        "Not enough space on the phone — Termux needs about ${(total + MIN_FREE_BYTES) / 1048576} MB.",
+                    ),
+                )
             }
             var got = 0L
             var shown = 0L
@@ -262,9 +274,9 @@ object TermuxInstall {
 
     fun pageIntent(): Intent = Intent(Intent.ACTION_VIEW, Uri.parse(FDROID_PAGE))
 
-    /** „34 z 109 MB”, a gdy rozmiar nieznany — „34 MB”. */
+    /** „34 z 109 MB” („34 of 109 MB”), a gdy rozmiar nieznany — „34 MB”. */
     internal fun progressLabel(done: Long, total: Long): String {
         val mb = { b: Long -> (b + 524_288) / 1_048_576 }
-        return if (total > 0) "${mb(done)} z ${mb(total)} MB" else "${mb(done)} MB"
+        return if (total > 0) tr("${mb(done)} z ${mb(total)} MB", "${mb(done)} of ${mb(total)} MB") else "${mb(done)} MB"
     }
 }

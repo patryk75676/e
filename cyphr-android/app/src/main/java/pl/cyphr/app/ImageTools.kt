@@ -41,7 +41,25 @@ object ImageTools {
         GAP.replace(EMPTY_FENCE.replace(CALL.replace(reply, ""), ""), "\n\n").trim()
 
     /** Dopisek do instrukcji systemowej, gdy serwer umie tworzyc obrazy. */
-    fun instructions(left: Int, limit: Int): String = if (left > 0) {
+    fun instructions(left: Int, limit: Int): String = if (isEn) {
+        if (left > 0) {
+            """
+You can create images. When the user asks for an image, photo, drawing, graphic, logo or illustration,
+write on a separate line exactly:
+!IMAGE: <detailed description of the image in English> --ar <1:1, 16:9 or 9:16>
+One image per reply, no code fences. The image will appear below your message —
+don't describe it again and don't say you can't create images.
+Never create nude or erotic images of real, existing people
+or of anyone who may be a minor — refuse without !IMAGE in that case.
+Today the user can create $left more of $limit images.
+            """.trimIndent()
+        } else {
+            """
+Today's image limit ($limit) is used up. When the user asks for an image, say briefly
+that more images will be available tomorrow. Don't use !IMAGE.
+            """.trimIndent()
+        }
+    } else if (left > 0) {
         """
 Możesz tworzyć obrazy. Gdy użytkownik prosi o obraz, zdjęcie, rysunek, grafikę, logo albo ilustrację,
 napisz w osobnej linii dokładnie:

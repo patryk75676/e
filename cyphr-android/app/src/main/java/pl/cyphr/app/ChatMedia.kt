@@ -93,12 +93,12 @@ object Composer {
         val app = context.applicationContext
         val free = Attachments.MAX_PER_MESSAGE - _staged.value.size - _importing.value
         if (free <= 0) {
-            _problems.tryEmit("Najwyżej ${Attachments.MAX_PER_MESSAGE} załączniki w jednej wiadomości.")
+            _problems.tryEmit(tr("Najwyżej ${Attachments.MAX_PER_MESSAGE} załączniki w jednej wiadomości.", "At most ${Attachments.MAX_PER_MESSAGE} attachments in one message."))
             return
         }
         val take = uris.take(free)
         if (uris.size > free) {
-            _problems.tryEmit("Dodałem ${take.size} — najwyżej ${Attachments.MAX_PER_MESSAGE} w jednej wiadomości.")
+            _problems.tryEmit(tr("Dodano ${take.size} — najwyżej ${Attachments.MAX_PER_MESSAGE} w jednej wiadomości.", "Added ${take.size} — at most ${Attachments.MAX_PER_MESSAGE} in one message."))
         }
         if (fromShare) _arrivals.tryEmit(Unit)
         for (uri in take) {
@@ -108,9 +108,9 @@ object Composer {
                     val a = Attachments.import(app, uri)
                     _staged.value = _staged.value + a
                 } catch (e: AttachError) {
-                    _problems.tryEmit(e.message ?: "Nie udało się dodać pliku.")
+                    _problems.tryEmit(e.message ?: tr("Nie udało się dodać pliku.", "Couldn't add the file."))
                 } catch (e: Exception) {
-                    _problems.tryEmit("Nie udało się dodać pliku.")
+                    _problems.tryEmit(tr("Nie udało się dodać pliku.", "Couldn't add the file."))
                 } finally {
                     _importing.value -= 1
                 }
@@ -154,7 +154,7 @@ object Composer {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = try { cm.primaryClip } catch (_: Exception) { null }
         val uris = (0 until (clip?.itemCount ?: 0)).mapNotNull { clip?.getItemAt(it)?.uri }
-        if (uris.isEmpty()) _problems.tryEmit("W schowku nie ma obrazu.") else add(context, uris)
+        if (uris.isEmpty()) _problems.tryEmit(tr("W schowku nie ma obrazu.", "There's no image on the clipboard.")) else add(context, uris)
     }
 }
 
@@ -171,12 +171,12 @@ fun AttachButton(open: Boolean, onClick: () -> Unit) {
             .size(48.dp)
             .clip(RoundedCornerShape(50))
             .background(Raise)
-            .clickable(onClickLabel = "Dodaj zdjęcie lub plik", onClick = onClick),
+            .clickable(onClickLabel = tr("Dodaj zdjęcie lub plik", "Add a photo or file"), onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             painterResource(R.drawable.ic_plus),
-            contentDescription = "Dodaj zdjęcie lub plik",
+            contentDescription = tr("Dodaj zdjęcie lub plik", "Add a photo or file"),
             tint = Paper,
             modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = turn },
         )
@@ -203,14 +203,15 @@ fun AttachMenu(
         onDismissRequest = onDismiss,
         modifier = Modifier.background(Raise).border(1.dp, Line, RoundedCornerShape(12.dp)),
     ) {
-        MenuRow(R.drawable.ic_image, "Zdjęcie lub zrzut ekranu", null) { onDismiss(); onPhotos() }
-        MenuRow(R.drawable.ic_file, "Plik", "PDF, tekst, kod") { onDismiss(); onFiles() }
-        if (onPaste != null) MenuRow(R.drawable.ic_paste, "Wklej obraz ze schowka", null) { onDismiss(); onPaste() }
+        MenuRow(R.drawable.ic_image, tr("Zdjęcie lub zrzut ekranu", "Photo or screenshot"), null) { onDismiss(); onPhotos() }
+        MenuRow(R.drawable.ic_file, tr("Plik", "File"), tr("PDF, tekst, kod", "PDF, text, code")) { onDismiss(); onFiles() }
+        if (onPaste != null) MenuRow(R.drawable.ic_paste, tr("Wklej obraz ze schowka", "Paste image from clipboard"), null) { onDismiss(); onPaste() }
         if (images != null) {
             MenuRow(
                 R.drawable.ic_sparkle,
-                "Stwórz obraz",
-                if (images.left > 0) "Dziś jeszcze ${images.left} z ${images.limit}" else "Limit na dziś wykorzystany",
+                tr("Stwórz obraz", "Create an image"),
+                if (images.left > 0) tr("Dziś jeszcze ${images.left} z ${images.limit}", "${images.left} of ${images.limit} left today")
+                else tr("Limit na dziś wykorzystany", "Today's limit is used up"),
                 enabled = images.left > 0,
             ) { onDismiss(); onCreateImage() }
         }
@@ -300,11 +301,11 @@ private fun StagedTile(a: Attachment, onRemove: () -> Unit, onOpen: () -> Unit) 
                 .offset(x = 8.dp, y = (-8).dp)
                 .size(32.dp)
                 .clip(RoundedCornerShape(50))
-                .clickable(onClickLabel = "Usuń załącznik", onClick = onRemove),
+                .clickable(onClickLabel = tr("Usuń załącznik", "Remove attachment"), onClick = onRemove),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(22.dp).clip(RoundedCornerShape(50)).background(Paper), contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_close), "Usuń załącznik", tint = Ink, modifier = Modifier.size(12.dp))
+                Icon(painterResource(R.drawable.ic_close), tr("Usuń załącznik", "Remove attachment"), tint = Ink, modifier = Modifier.size(12.dp))
             }
         }
     }
@@ -340,12 +341,12 @@ fun PasteChip(visible: Boolean, onPaste: () -> Unit, onDismiss: () -> Unit) {
         ) {
             Icon(painterResource(R.drawable.ic_paste), null, tint = Paper, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Wklej obraz ze schowka", color = Paper, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(tr("Wklej obraz ze schowka", "Paste image from clipboard"), color = Paper, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.width(2.dp))
             Box(
-                Modifier.size(28.dp).clip(RoundedCornerShape(50)).clickable(onClickLabel = "Schowaj", onClick = onDismiss),
+                Modifier.size(28.dp).clip(RoundedCornerShape(50)).clickable(onClickLabel = tr("Schowaj", "Hide"), onClick = onDismiss),
                 contentAlignment = Alignment.Center,
-            ) { Icon(painterResource(R.drawable.ic_close), "Schowaj", tint = Mist, modifier = Modifier.size(12.dp)) }
+            ) { Icon(painterResource(R.drawable.ic_close), tr("Schowaj", "Hide"), tint = Mist, modifier = Modifier.size(12.dp)) }
         }
     }
 }
@@ -451,19 +452,15 @@ private fun FileCard(a: Attachment, onClick: () -> Unit, onLongPress: () -> Unit
             Text(a.name, color = Paper, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val detail = when (a.kind) {
                 Attachment.Kind.Pdf -> "PDF · " + pagesLabel(a.pages) + " · " + Attachments.humanSize(a.size)
-                else -> Attachments.humanSize(a.size) + (if (a.truncated) " · model widzi początek" else "")
+                else -> Attachments.humanSize(a.size) + (if (a.truncated) tr(" · model widzi początek", " · the model sees the beginning") else "")
             }
             Text(detail, color = Mist, fontSize = 12.sp, maxLines = 1)
         }
     }
 }
 
-/** „1 strona”, „3 strony”, „12 stron” — po polsku. */
-internal fun pagesLabel(n: Int): String = when {
-    n == 1 -> "1 strona"
-    n % 10 in 2..4 && n % 100 !in 12..14 -> "$n strony"
-    else -> "$n stron"
-}
+/** „1 strona”, „3 strony”, „12 stron” — albo „1 page”, „3 pages”. */
+internal fun pagesLabel(n: Int): String = count(n, "strona", "strony", "stron", "page", "pages")
 
 /** Obraz od modelu: duzy, z pojawieniem sie i akcjami pod spodem. */
 @Composable
@@ -477,7 +474,7 @@ private fun GeneratedImage(a: Attachment, onOpen: () -> Unit, onNote: (String) -
     Column {
         AsyncImage(
             model = Attachments.file(context, path),
-            contentDescription = a.prompt.ifBlank { "Obraz stworzony przez model" },
+            contentDescription = a.prompt.ifBlank { tr("Obraz stworzony przez model", "Image created by the model") },
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .widthIn(max = 300.dp)
@@ -489,19 +486,22 @@ private fun GeneratedImage(a: Attachment, onOpen: () -> Unit, onNote: (String) -
                 }
                 .clip(RoundedCornerShape(18.dp))
                 .background(Raise)
-                .clickable(onClickLabel = "Powiększ", onClick = onOpen),
+                .clickable(onClickLabel = tr("Powiększ", "Enlarge"), onClick = onOpen),
         )
         Row(Modifier.padding(top = 2.dp)) {
             if (Attachments.canSaveToGallery) {
-                MediaAction(R.drawable.ic_download, "Zapisz") {
+                MediaAction(R.drawable.ic_download, tr("Zapisz", "Save")) {
                     scope.launch {
-                        onNote(if (Attachments.saveToGallery(context, path, a.mime)) "Zapisano w galerii (Obrazy/CYPHR)." else "Nie udało się zapisać obrazu.")
+                        onNote(
+                            if (Attachments.saveToGallery(context, path, a.mime)) tr("Zapisano w galerii (Obrazy/CYPHR).", "Saved to the gallery (Pictures/CYPHR).")
+                            else tr("Nie udało się zapisać obrazu.", "Couldn't save the image."),
+                        )
                     }
                 }
             }
-            MediaAction(R.drawable.ic_share, "Udostępnij") {
+            MediaAction(R.drawable.ic_share, tr("Udostępnij", "Share")) {
                 try { context.startActivity(Attachments.shareIntent(context, path, a.mime)) } catch (_: Exception) {
-                    onNote("Nie udało się udostępnić obrazu.")
+                    onNote(tr("Nie udało się udostępnić obrazu.", "Couldn't share the image."))
                 }
             }
         }
@@ -555,7 +555,7 @@ fun DrawingBubble() {
             Icon(painterResource(R.drawable.ic_sparkle), null, tint = Mist, modifier = Modifier.size(34.dp))
         }
         Spacer(Modifier.height(8.dp))
-        Text("Tworzę obraz…", color = Mist, fontSize = 13.sp)
+        Text(tr("Tworzę obraz…", "Creating the image…"), color = Mist, fontSize = 13.sp)
     }
 }
 
@@ -592,7 +592,8 @@ fun ImageViewer(a: Attachment, onDismiss: () -> Unit, onNote: (String) -> Unit) 
                         // Po „z” liczba stron w dopelniaczu: „4 z 22 stron”, nie „z 22 strony”.
                         val seen = a.files.size
                         Lead(
-                            if (seen == 1) "Model widzi pierwszą z ${a.pages} stron." else "Model widzi pierwsze $seen z ${a.pages} stron.",
+                            if (seen == 1) tr("Model widzi pierwszą z ${a.pages} stron.", "The model sees the first of ${a.pages} pages.")
+                            else tr("Model widzi pierwsze $seen z ${a.pages} stron.", "The model sees the first $seen of ${a.pages} pages."),
                             center = true,
                         )
                     }
@@ -625,22 +626,25 @@ fun ImageViewer(a: Attachment, onDismiss: () -> Unit, onNote: (String) -> Unit) 
             ) {
                 Box(
                     Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(Raise.copy(alpha = 0.8f))
-                        .clickable(onClickLabel = "Zamknij", onClick = onDismiss),
+                        .clickable(onClickLabel = tr("Zamknij", "Close"), onClick = onDismiss),
                     contentAlignment = Alignment.Center,
-                ) { Icon(painterResource(R.drawable.ic_close), "Zamknij", tint = Paper, modifier = Modifier.size(18.dp)) }
+                ) { Icon(painterResource(R.drawable.ic_close), tr("Zamknij", "Close"), tint = Paper, modifier = Modifier.size(18.dp)) }
                 Spacer(Modifier.weight(1f))
                 val path = a.files.firstOrNull()
                 if (path != null && a.kind != Attachment.Kind.Pdf) {
                     if (Attachments.canSaveToGallery) {
-                        MediaAction(R.drawable.ic_download, "Zapisz") {
+                        MediaAction(R.drawable.ic_download, tr("Zapisz", "Save")) {
                             scope.launch {
-                                onNote(if (Attachments.saveToGallery(context, path, a.mime)) "Zapisano w galerii (Obrazy/CYPHR)." else "Nie udało się zapisać obrazu.")
+                                onNote(
+                            if (Attachments.saveToGallery(context, path, a.mime)) tr("Zapisano w galerii (Obrazy/CYPHR).", "Saved to the gallery (Pictures/CYPHR).")
+                            else tr("Nie udało się zapisać obrazu.", "Couldn't save the image."),
+                        )
                             }
                         }
                     }
-                    MediaAction(R.drawable.ic_share, "Udostępnij") {
+                    MediaAction(R.drawable.ic_share, tr("Udostępnij", "Share")) {
                         try { context.startActivity(Attachments.shareIntent(context, path, a.mime)) } catch (_: Exception) {
-                            onNote("Nie udało się udostępnić obrazu.")
+                            onNote(tr("Nie udało się udostępnić obrazu.", "Couldn't share the image."))
                         }
                     }
                 }

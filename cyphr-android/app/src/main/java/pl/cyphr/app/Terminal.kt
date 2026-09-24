@@ -55,7 +55,7 @@ fun TerminalTab() {
     var termuxCwd by remember { mutableStateOf(Termux.HOME) }
     // Ile sekund dziala biezace polecenie — przy dlugich (pkg install) widac, ze cos sie dzieje.
     var elapsed by remember { mutableStateOf(0) }
-    var lines by remember { mutableStateOf(listOf("CYPHR terminal. Wpisz help.")) }
+    var lines by remember { mutableStateOf(listOf(tr("CYPHR terminal. Wpisz help.", "CYPHR terminal. Type help."))) }
     var input by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<String?>(null) }
@@ -123,10 +123,10 @@ fun TerminalTab() {
                     flush()
                     val code = p.waitFor()
                     shell.cleanup()
-                    if (code != 0 && process.get() != null) withContext(Dispatchers.Main) { push("[wyjście $code]") }
+                    if (code != 0 && process.get() != null) withContext(Dispatchers.Main) { push(tr("[wyjście $code]", "[exit $code]")) }
                 }
             } catch (e: Exception) {
-                push("Błąd: ${e.message}")
+                push(tr("Błąd: ${e.message}", "Error: ${e.message}"))
             } finally {
                 process.set(null)
                 running = false
@@ -137,9 +137,12 @@ fun TerminalTab() {
     /** Brak zgody na Termuxa po pytaniu systemu — mowimy, co dalej, zamiast milczec. */
     fun noTermuxPermission() = push(
         if (!Termux.acceptsCommands(context)) {
-            Termux.NO_COMMAND_API + " Wpisz 'termux' po instrukcję."
+            Termux.noCommandApi() + tr(" Wpisz 'termux' po instrukcję.", " Type 'termux' for instructions.")
         } else {
-            "Bez zgody na sterowanie Termuksem polecenie nie pójdzie. Zezwól, gdy Android zapyta, albo w Ustawienia → Terminal."
+            tr(
+                "Bez zgody na sterowanie Termuksem polecenie nie pójdzie. Zezwól, gdy Android zapyta, albo w Ustawienia → Terminal.",
+                "Without permission to control Termux the command won't go through. Allow it when Android asks, or in Settings → Terminal.",
+            )
         },
     )
 
@@ -154,9 +157,9 @@ fun TerminalTab() {
                 r.stderr.trimEnd().takeIf { it.isNotEmpty() }?.lines()?.forEach { push(it) }
                 // Wlasny komunikat Termuxa mowi, co jest nie tak — wczesniej ginal.
                 r.errMsg?.let { push("Termux: $it") }
-                if (r.failure != null && r.failure != Termux.Failure.NoReply) push("Wpisz 'termux' — wypiszę, jak to naprawić.")
-                if (r.truncated) push("(Termux obciął początek wyniku — oddaje najwyżej ok. 100 KB)")
-                if (r.failure == null && r.exitCode != 0) push("[wyjście ${r.exitCode}]")
+                if (r.failure != null && r.failure != Termux.Failure.NoReply) push(tr("Wpisz 'termux' — wypiszę, jak to naprawić.", "Type 'termux' — it lists how to fix this."))
+                if (r.truncated) push(tr("(Termux obciął początek wyniku — oddaje najwyżej ok. 100 KB)", "(Termux cut off the start of the output — it returns at most about 100 KB)"))
+                if (r.failure == null && r.exitCode != 0) push(tr("[wyjście ${r.exitCode}]", "[exit ${r.exitCode}]"))
             } finally {
                 running = false
             }
@@ -174,7 +177,7 @@ fun TerminalTab() {
                 if (r.failure == null && r.exitCode == 0 && path != null && path.startsWith("/")) {
                     termuxCwd = path
                 } else {
-                    push(r.errMsg ?: r.stderr.trim().ifBlank { "cd: nie ma katalogu: $target" })
+                    push(r.errMsg ?: r.stderr.trim().ifBlank { tr("cd: nie ma katalogu: $target", "cd: no such directory: $target") })
                 }
             } finally {
                 running = false
@@ -187,22 +190,22 @@ fun TerminalTab() {
         val shell = process.getAndSet(null)
         if (shell != null) {
             shell.kill()
-            push("^C przerwano")
+            push(tr("^C przerwano", "^C stopped"))
         } else if (mode == Mode.Termux) {
             job?.cancel()
-            push("^C przestałem czekać — polecenie może dalej działać w Termuksie.")
+            push(tr("^C koniec czekania — polecenie może dalej działać w Termuksie.", "^C stopped waiting — the command may still be running in Termux."))
         }
     }
 
     fun execute(command: String) {
         if (running) {
-            push("Poprzednie polecenie jeszcze działa. Dotknij Stop, żeby je przerwać.")
+            push(busyNote())
             return
         }
         when (mode) {
             Mode.Termux -> {
                 if (!Termux.isInstalled(context)) {
-                    push("Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję.")
+                    push(missingNote())
                     return
                 }
                 executeTermux(command)
@@ -220,25 +223,38 @@ fun TerminalTab() {
             command == "help" -> {
                 push(
                     when (mode) {
-                        Mode.Termux ->
+                        Mode.Termux -> tr(
                             "Tryb Termux: polecenia idą do zainstalowanego Termuksa.\n" +
                                 "Masz jego pkg, pythona, gita — wszystko, co tam zainstalujesz.\n" +
                                 "cd <katalog> działa i jest pamiętany, ~ to katalog domowy Termuksa.\n" +
                                 "Wynik pojawia się po zakończeniu polecenia; Stop przestaje czekać.\n" +
-                                "Wpisz 'termux', jeśli coś nie działa — wypiszę, jak to ustawić."
-                        Mode.Local ->
+                                "Wpisz 'termux', jeśli coś nie działa — wypiszę, jak to ustawić.",
+                            "Termux mode: commands go to the installed Termux.\n" +
+                                "You have its pkg, python, git — everything you install there.\n" +
+                                "cd <directory> works and is remembered, ~ is Termux's home directory.\n" +
+                                "The output appears when the command ends; Stop stops waiting.\n" +
+                                "Type 'termux' if something doesn't work — it lists how to set it up.",
+                        )
+                        Mode.Local -> tr(
                             "Tryb lokalny: polecenia systemu Androida (ls, cat, ps, ping, df, getprop).\n" +
                                 "cd <katalog> zmienia katalog, edit <plik> otwiera edytor, clear czyści ekran.\n" +
                                 "Katalog domowy: ${home.absolutePath}\n" +
                                 "To powłoka samego Androida — nie ma apt ani pythona.\n" +
-                                "Pełne narzędzia daje tryb Termux."
+                                "Pełne narzędzia daje tryb Termux.",
+                            "Local mode: Android system commands (ls, cat, ps, ping, df, getprop).\n" +
+                                "cd <directory> changes the directory, edit <file> opens the editor, clear clears the screen.\n" +
+                                "Home directory: ${home.absolutePath}\n" +
+                                "This is Android's own shell — there's no apt or python.\n" +
+                                "Termux mode gives you the full tools.",
+                        )
                     },
                 )
                 return
             }
             command == "termux" -> {
                 push(
-                    if (Termux.isInstalled(context) && !Termux.acceptsCommands(context))
+                    if (isEn) termuxHelpEn(Termux.isInstalled(context), Termux.acceptsCommands(context))
+                    else if (Termux.isInstalled(context) && !Termux.acceptsCommands(context))
                         "Ten Termux jest z Google Play. To osobna wersja, która nie przyjmuje poleceń od innych " +
                             "aplikacji — nie ma w niej zgody na sterowanie z zewnątrz, więc nie da się jej włączyć.\n\n" +
                             "CYPHR wymieni go sam: Ustawienia → Terminal → „Odinstaluj Termux”, a potem\n" +
@@ -271,8 +287,8 @@ fun TerminalTab() {
             }
             mode == Mode.Termux && (command == "cd" || command.startsWith("cd ")) &&
                 Termux.cdTarget(command.removePrefix("cd")) != null -> {
-                if (running) { push("Poprzednie polecenie jeszcze działa. Dotknij Stop, żeby je przerwać."); return }
-                if (!Termux.isInstalled(context)) { push("Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję."); return }
+                if (running) { push(busyNote()); return }
+                if (!Termux.isInstalled(context)) { push(missingNote()); return }
                 changeTermuxDir(Termux.cdTarget(command.removePrefix("cd"))!!)
                 return
             }
@@ -283,16 +299,21 @@ fun TerminalTab() {
                 // na glownym watku, czyli zamknieciem calej aplikacji.
                 val text = try {
                     when {
-                        file.isDirectory -> { push("edit: $name to katalog"); return }
+                        file.isDirectory -> { push(tr("edit: $name to katalog", "edit: $name is a directory")); return }
                         file.isFile && file.length() > MAX_EDIT_BYTES -> {
-                            push("edit: plik ma ${file.length() / 1024} KB — edytor przyjmuje do ${MAX_EDIT_BYTES / 1024} KB.")
+                            push(
+                                tr(
+                                    "edit: plik ma ${file.length() / 1024} KB — edytor przyjmuje do ${MAX_EDIT_BYTES / 1024} KB.",
+                                    "edit: the file is ${file.length() / 1024} KB — the editor takes up to ${MAX_EDIT_BYTES / 1024} KB.",
+                                ),
+                            )
                             return
                         }
                         file.isFile -> file.readText()
                         else -> ""
                     }
                 } catch (e: Exception) {
-                    push("edit: nie mogę otworzyć $name (${e.message})")
+                    push(tr("edit: nie mogę otworzyć $name (${e.message})", "edit: can't open $name (${e.message})"))
                     return
                 }
                 editing = file to text
@@ -306,7 +327,7 @@ fun TerminalTab() {
                     target.startsWith("/") -> File(target)
                     else -> File(cwd, target)
                 }
-                if (next.isDirectory) cwd = next.canonicalFile else push("cd: nie ma katalogu: $target")
+                if (next.isDirectory) cwd = next.canonicalFile else push(tr("cd: nie ma katalogu: $target", "cd: no such directory: $target"))
                 return
             }
         }
@@ -317,15 +338,15 @@ fun TerminalTab() {
     pending?.let { command ->
         val risky = isRisky(command)
         PermissionDialog(
-            title = if (risky) "Groźne polecenie" else "Uruchomić polecenie?",
+            title = if (risky) tr("Groźne polecenie", "Dangerous command") else tr("Uruchomić polecenie?", "Run the command?"),
             what = "$ $command",
-            detail = if (risky) "Może skasować albo nadpisać dane. Tego pytania nie da się wyłączyć."
-            else if (mode == Mode.Termux) "Termux, katalog ${Termux.shortPath(termuxCwd)}"
-            else "Katalog: ${cwd.absolutePath}",
+            detail = if (risky) tr("Może skasować albo nadpisać dane. Tego pytania nie da się wyłączyć.", "It may delete or overwrite data. This question can't be turned off.")
+            else if (mode == Mode.Termux) tr("Termux, katalog ${Termux.shortPath(termuxCwd)}", "Termux, directory ${Termux.shortPath(termuxCwd)}")
+            else tr("Katalog: ${cwd.absolutePath}", "Directory: ${cwd.absolutePath}"),
             allowAlways = !risky,
             onAllowOnce = { execute(command); pending = null },
             onAllowAlways = { Prefs.setAskCommands(false); execute(command); pending = null },
-            onDeny = { push("Odrzucono."); pending = null },
+            onDeny = { push(tr("Odrzucono.", "Denied.")); pending = null },
         )
     }
 
@@ -339,23 +360,23 @@ fun TerminalTab() {
         )
         if (saveAsk) {
             PermissionDialog(
-                title = "Zapisać plik?",
+                title = tr("Zapisać plik?", "Save the file?"),
                 what = file.absolutePath,
-                detail = "${text.length} znaków. Poprzednia zawartość zostanie nadpisana.",
+                detail = tr("${text.length} znaków. Poprzednia zawartość zostanie nadpisana.", "${text.length} characters. The previous content will be overwritten."),
                 allowAlways = false,
                 onAllowOnce = {
                     // Zapis poza piaskownica (np. /system) rzucal wyjatek i zamykal aplikacje.
                     try {
                         file.writeText(text)
-                        push("Zapisano ${file.name} (${text.length} znaków).")
+                        push(tr("Zapisano ${file.name} (${text.length} znaków).", "Saved ${file.name} (${text.length} characters)."))
                         editing = null
                     } catch (e: Exception) {
-                        push("Nie zapisano ${file.name}: ${e.message}")
+                        push(tr("Nie zapisano ${file.name}: ${e.message}", "Didn't save ${file.name}: ${e.message}"))
                     }
                     saveAsk = false
                 },
                 onAllowAlways = {},
-                onDeny = { push("Zapis odrzucony."); saveAsk = false },
+                onDeny = { push(tr("Zapis odrzucony.", "Save denied.")); saveAsk = false },
             )
         }
     }
@@ -367,18 +388,18 @@ fun TerminalTab() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ModeChip("Lokalny", mode == Mode.Local) { mode = Mode.Local }
+            ModeChip(tr("Lokalny", "Local"), mode == Mode.Local) { mode = Mode.Local }
             ModeChip("Termux", mode == Mode.Termux) {
                 mode = Mode.Termux
-                if (!Termux.isInstalled(context)) push("Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję.")
+                if (!Termux.isInstalled(context)) push(missingNote())
             }
         }
 
         Text(
             when (mode) {
-                Mode.Termux -> if (Termux.isInstalled(context)) "termux:${Termux.shortPath(termuxCwd)}" else "termux — nie zainstalowany"
+                Mode.Termux -> if (Termux.isInstalled(context)) "termux:${Termux.shortPath(termuxCwd)}" else tr("termux — nie zainstalowany", "termux — not installed")
                 Mode.Local -> cwd.absolutePath
-            } + if (running && elapsed >= 2) "   ·  działa $elapsed s" else "",
+            } + if (running && elapsed >= 2) tr("   ·  działa $elapsed s", "   ·  running $elapsed s") else "",
             color = Mist, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
         )
@@ -406,7 +427,7 @@ fun TerminalTab() {
                 value = input,
                 onValueChange = { input = it },
                 singleLine = true,
-                placeholder = { Text("polecenie", color = Mist, fontFamily = FontFamily.Monospace) },
+                placeholder = { Text(tr("polecenie", "command"), color = Mist, fontFamily = FontFamily.Monospace) },
                 shape = RoundedCornerShape(16.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { run(input) }),
@@ -424,13 +445,55 @@ fun TerminalTab() {
             IconButton(onClick = { if (canStop) stop() else run(input) }) {
                 Icon(
                     painterResource(if (canStop) R.drawable.ic_close else R.drawable.ic_send),
-                    contentDescription = if (canStop) "Przerwij" else "Uruchom",
+                    contentDescription = if (canStop) tr("Przerwij", "Stop") else tr("Uruchom", "Run"),
                     tint = Paper,
                     modifier = Modifier.size(20.dp),
                 )
             }
         }
     }
+}
+
+private fun busyNote() = tr(
+    "Poprzednie polecenie jeszcze działa. Dotknij Stop, żeby je przerwać.",
+    "The previous command is still running. Tap Stop to interrupt it.",
+)
+
+private fun missingNote() = tr(
+    "Termux nie jest zainstalowany. Wpisz 'termux' po instrukcję.",
+    "Termux isn't installed. Type 'termux' for instructions.",
+)
+
+/** Pomoc do polecenia `termux` po angielsku — trzy przypadki jak w wersji polskiej. */
+private fun termuxHelpEn(installed: Boolean, acceptsCommands: Boolean): String = when {
+    installed && !acceptsCommands ->
+        "This Termux is from Google Play. It's a separate version that doesn't accept commands from other " +
+            "apps — it has no permission for outside control, so it can't be turned on.\n\n" +
+            "CYPHR will replace it for you: Settings → Terminal → \"Uninstall Termux\", then\n" +
+            "\"Install downloaded Termux\" — the right one downloads from F-Droid in the background and gets checked.\n" +
+            "Files in the current Termux will be lost — move anything important first.\n\n" +
+            "Then open Termux, wait for the setup to finish and paste:\n" +
+            "   ${Termux.SETUP_COMMAND}\n" +
+            "CYPHR asks for permission by itself on the first command."
+    installed ->
+        "Termux is installed. The exact state and a step-by-step fix are in " +
+            "Settings → Terminal.\n\n" +
+            "Most common reasons commands don't go through:\n" +
+            "1. Termux blocks commands from other apps. Paste this into it once:\n" +
+            "   ${Termux.SETUP_COMMAND}\n" +
+            "2. Permission to control Termux was denied — CYPHR asks on the first command;\n" +
+            "   after a permanent denial you turn it on in Settings → Terminal.\n" +
+            "3. Termux has never been opened — open it once and wait for the setup to finish.\n" +
+            "4. Android puts Termux to sleep — turn off battery optimization for it.\n" +
+            "5. Termux from Google Play doesn't accept commands from other apps — you need the F-Droid one."
+    else ->
+        "Termux isn't installed.\n\n" +
+            "You install it with one tap: Settings → Terminal → \"Install Termux\".\n" +
+            "CYPHR downloads it from F-Droid, checks it's the original and opens the Android installer.\n" +
+            "The Google Play version doesn't accept commands from other apps — the F-Droid one does.\n\n" +
+            "After installing, open Termux, wait for the setup to finish and paste:\n" +
+            "  ${Termux.SETUP_COMMAND}\n\n" +
+            "Then come back here and switch the mode to Termux."
 }
 
 @Composable
@@ -472,9 +535,9 @@ private fun FileEditor(
                 modifier = Modifier.fillMaxWidth().height(260.dp),
             )
             Spacer(Modifier.height(16.dp))
-            PrimaryButton("Zapisz", onClick = onSave)
+            PrimaryButton(tr("Zapisz", "Save"), onClick = onSave)
             Spacer(Modifier.height(10.dp))
-            GhostButton("Zamknij", onClick = onClose)
+            GhostButton(tr("Zamknij", "Close"), onClick = onClose)
         }
     }
 }

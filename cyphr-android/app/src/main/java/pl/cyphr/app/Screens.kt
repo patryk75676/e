@@ -136,26 +136,26 @@ fun AuthScreen(
 
         GoogleButton(onClick = onGoogle)
         Spacer(Modifier.height(16.dp))
-        Divider("albo e-mailem")
+        Divider(tr("albo e-mailem", "or with email"))
         Spacer(Modifier.height(16.dp))
         Segmented(register) { register = it }
         Spacer(Modifier.height(16.dp))
 
         if (register) {
-            Field(name, "Imię", { name = it })
+            Field(name, tr("Imię", "Name"), { name = it })
             Spacer(Modifier.height(12.dp))
         }
-        Field(email, "E-mail", { email = it }, keyboard = KeyboardType.Email)
+        Field(email, tr("E-mail", "Email"), { email = it }, keyboard = KeyboardType.Email)
         Spacer(Modifier.height(12.dp))
-        Field(password, "Hasło", { password = it }, password = true)
+        Field(password, tr("Hasło", "Password"), { password = it }, password = true)
         if (register) {
             Spacer(Modifier.height(6.dp))
-            Text("Co najmniej 8 znaków.", color = Mist, fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
+            Text(tr("Co najmniej 8 znaków.", "At least 8 characters."), color = Mist, fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
         }
         Spacer(Modifier.height(12.dp))
         ErrorText(error)
         Spacer(Modifier.height(12.dp))
-        GhostButton(if (register) "Załóż konto" else "Zaloguj się", busy = busy) {
+        GhostButton(if (register) tr("Załóż konto", "Create account") else tr("Zaloguj się", "Sign in"), busy = busy) {
             onSubmit(register, email.trim().lowercase(), password, name.trim())
         }
 
@@ -167,19 +167,19 @@ fun AuthScreen(
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Nie pamiętam hasła", color = Mist, fontSize = 14.sp)
+                Text(tr("Nie pamiętam hasła", "Forgot password"), color = Mist, fontSize = 14.sp)
             }
         }
 
         if (!register && saved.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
-            Divider("zapamiętane na telefonie")
+            Divider(tr("zapamiętane na telefonie", "saved on this phone"))
             Spacer(Modifier.height(12.dp))
             saved.forEach { acc ->
                 GhostButton(acc.email, enabled = !busy) { onUseSaved(acc) }
                 Spacer(Modifier.height(8.dp))
             }
-            Lead("Wejście na zapamiętane konto potwierdzasz odciskiem.", center = true)
+            Lead(tr("Wejście na zapamiętane konto potwierdzasz odciskiem.", "You confirm a saved account with your fingerprint."), center = true)
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -219,27 +219,27 @@ fun ResetScreen(
     ) {
         Spacer(Modifier.height(8.dp))
         IconButton(onClick = onBack) {
-            Icon(painterResource(R.drawable.ic_back), contentDescription = "Wróć", tint = Paper, modifier = Modifier.size(20.dp))
+            Icon(painterResource(R.drawable.ic_back), contentDescription = tr("Wróć", "Back"), tint = Paper, modifier = Modifier.size(20.dp))
         }
         Ghost(size = 76.dp, floating = true, modifier = Modifier.padding(vertical = 12.dp))
-        SectionTitle("Nowe hasło")
+        SectionTitle(tr("Nowe hasło", "New password"))
         Spacer(Modifier.height(8.dp))
-        Lead("Jeśli na $email jest konto, wysłaliśmy na nie 6-cyfrowy kod. Jest ważny 15 minut.")
+        Lead(tr("Jeśli na $email jest konto, wysłaliśmy na nie 6-cyfrowy kod. Jest ważny 15 minut.", "If there is an account for $email, we've sent it a 6-digit code. It's valid for 15 minutes."))
         Spacer(Modifier.height(24.dp))
 
         BasicCodeField(code, focus) { code = it }
         Spacer(Modifier.height(14.dp))
-        Field(haslo, "Nowe hasło", { haslo = it }, password = true)
+        Field(haslo, tr("Nowe hasło", "New password"), { haslo = it }, password = true)
         Spacer(Modifier.height(6.dp))
-        Text("Co najmniej 8 znaków.", color = Mist, fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
+        Text(tr("Co najmniej 8 znaków.", "At least 8 characters."), color = Mist, fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
 
         Spacer(Modifier.height(14.dp))
         ErrorText(error)
         Spacer(Modifier.height(14.dp))
-        PrimaryButton("Ustaw nowe hasło", busy = busy) { onSubmit(code, haslo) }
+        PrimaryButton(tr("Ustaw nowe hasło", "Set new password"), busy = busy) { onSubmit(code, haslo) }
         Spacer(Modifier.height(10.dp))
         GhostButton(
-            if (cooldown > 0) "Wyślij ponownie za $cooldown s" else "Wyślij kod ponownie",
+            if (cooldown > 0) tr("Wyślij ponownie za $cooldown s", "Resend in $cooldown s") else tr("Wyślij kod ponownie", "Resend code"),
             enabled = cooldown == 0 && !busy,
             onClick = onResend,
         )
@@ -270,7 +270,7 @@ private fun GoogleButton(onClick: () -> Unit) {
             modifier = Modifier.size(22.dp),
         )
         Spacer(Modifier.width(10.dp))
-        Text("Zaloguj się przez Google", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(tr("Zaloguj się przez Google", "Sign in with Google"), color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -303,12 +303,12 @@ fun VerifyScreen(
     ) {
         Spacer(Modifier.height(8.dp))
         IconButton(onClick = onBack) {
-            Icon(painterResource(R.drawable.ic_back), contentDescription = "Wróć", tint = Paper, modifier = Modifier.size(20.dp))
+            Icon(painterResource(R.drawable.ic_back), contentDescription = tr("Wróć", "Back"), tint = Paper, modifier = Modifier.size(20.dp))
         }
         Ghost(size = 76.dp, floating = true, modifier = Modifier.padding(vertical = 12.dp))
-        SectionTitle("Sprawdź skrzynkę")
+        SectionTitle(tr("Sprawdź skrzynkę", "Check your inbox"))
         Spacer(Modifier.height(8.dp))
-        Lead("Wysłaliśmy 6-cyfrowy kod na $email. Kod jest ważny 15 minut.")
+        Lead(tr("Wysłaliśmy 6-cyfrowy kod na $email. Kod jest ważny 15 minut.", "We've sent a 6-digit code to $email. It's valid for 15 minutes."))
         Spacer(Modifier.height(24.dp))
 
         BasicCodeField(code, focus) { value ->
@@ -320,10 +320,10 @@ fun VerifyScreen(
         Spacer(Modifier.height(16.dp))
         ErrorText(error)
         Spacer(Modifier.height(16.dp))
-        PrimaryButton("Potwierdź", busy = busy) { onSubmit(code) }
+        PrimaryButton(tr("Potwierdź", "Confirm"), busy = busy) { onSubmit(code) }
         Spacer(Modifier.height(10.dp))
         GhostButton(
-            if (cooldown > 0) "Wyślij ponownie za $cooldown s" else "Wyślij kod ponownie",
+            if (cooldown > 0) tr("Wyślij ponownie za $cooldown s", "Resend in $cooldown s") else tr("Wyślij kod ponownie", "Resend code"),
             enabled = cooldown == 0,
             onClick = onResend,
         )
@@ -385,18 +385,18 @@ private fun AgentStats(usage: Usage?, lastTokens: Pair<Int, Int>?) {
             .border(1.5.dp, Line, RoundedCornerShape(18.dp))
             .padding(16.dp),
     ) {
-        Text("ZUŻYCIE", color = Mist, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(tr("ZUŻYCIE", "USAGE"), color = Mist, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatCell("Tokeny / 30 dni", usage?.tokens?.let { int(it) } ?: "—")
-            StatCell("Wydane / 30 dni", usage?.let { usd(it.spentUsd) } ?: "—")
+            StatCell(tr("Tokeny / 30 dni", "Tokens / 30 days"), usage?.tokens?.let { int(it) } ?: "—")
+            StatCell(tr("Wydane / 30 dni", "Spent / 30 days"), usage?.let { usd(it.spentUsd) } ?: "—")
         }
         Spacer(Modifier.height(14.dp))
         HorizontalDivider(color = Line, thickness = 1.dp)
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatCell("Ostatnie wejście", lastTokens?.first?.let { int(it.toLong()) } ?: "—")
-            StatCell("Ostatnie wyjście", lastTokens?.second?.let { int(it.toLong()) } ?: "—")
+            StatCell(tr("Ostatnie wejście", "Last input"), lastTokens?.first?.let { int(it.toLong()) } ?: "—")
+            StatCell(tr("Ostatnie wyjście", "Last output"), lastTokens?.second?.let { int(it.toLong()) } ?: "—")
         }
     }
 }
@@ -421,9 +421,9 @@ fun AgentsTab(
     onRefresh: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Pad)) {
-        SectionTitle("Agenci", Modifier.padding(top = 10.dp))
+        SectionTitle(tr("Agenci", "Agents"), Modifier.padding(top = 10.dp))
         Spacer(Modifier.height(6.dp))
-        Lead("Modele CYPHR. Wybrany odpowiada w czacie i w przeglądarce.")
+        Lead(tr("Modele CYPHR. Wybrany odpowiada w czacie i w przeglądarce.", "CYPHR models. The one you pick answers in the chat and in the browser."))
         Spacer(Modifier.height(18.dp))
 
         if (agents.isEmpty()) {
@@ -433,11 +433,11 @@ fun AgentsTab(
             ) {
                 Ghost(size = 96.dp, floating = true)
                 Spacer(Modifier.height(20.dp))
-                Text("Brak agentów", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Paper)
+                Text(tr("Brak agentów", "No agents"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Paper)
                 Spacer(Modifier.height(6.dp))
-                Lead("Spróbuj odświeżyć listę.", center = true)
+                Lead(tr("Spróbuj odświeżyć listę.", "Try refreshing the list."), center = true)
                 Spacer(Modifier.height(22.dp))
-                GhostButton("Odśwież", Modifier.width(180.dp), busy = busy, onClick = onRefresh)
+                GhostButton(tr("Odśwież", "Refresh"), Modifier.width(180.dp), busy = busy, onClick = onRefresh)
             }
         } else {
             // Kolejnosc z katalogu: domyslny model pierwszy.
@@ -476,9 +476,11 @@ private fun AgentRow(agent: Agent, selected: Boolean, onPick: () -> Unit) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(agent.name, color = Paper, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-            if (agent.description.isNotBlank()) {
+            // Opis z katalogu w jezyku aplikacji — lista z serwera mogla przyjsc przed zmiana jezyka.
+            val description = CATALOG.firstOrNull { it.id == agent.id }?.description ?: agent.description
+            if (description.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
-                Text(agent.description, color = Mist, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(description, color = Mist, fontSize = 13.sp, lineHeight = 18.sp)
             }
             agent.price?.let {
                 Spacer(Modifier.height(6.dp))
@@ -498,7 +500,7 @@ private fun AgentRow(agent: Agent, selected: Boolean, onPick: () -> Unit) {
         ) {
             Icon(
                 painterResource(R.drawable.ic_check),
-                if (selected) "Wybrany" else null,
+                if (selected) tr("Wybrany", "Selected") else null,
                 tint = Ink,
                 modifier = Modifier.size(16.dp).graphicsLayer { scaleX = check; scaleY = check; alpha = check },
             )
@@ -515,24 +517,30 @@ fun ShopTab(shop: Shop?, error: String?, holder: String, onRetry: () -> Unit, on
     ) {
         Spacer(Modifier.height(6.dp))
         CreditCard3D(
-            label = preview?.name?.let { "Pakiet $it" } ?: "Doładowanie",
+            label = preview?.name?.let { tr("Pakiet $it", "$it pack") } ?: tr("Doładowanie", "Top-up"),
             amount = preview?.let { usd(it.amountUsd) } ?: "—",
             holder = holder,
         )
         Spacer(Modifier.height(20.dp))
-        SectionTitle("Doładuj saldo")
+        SectionTitle(tr("Doładuj saldo", "Top up balance"))
         Spacer(Modifier.height(8.dp))
         Lead(
             when {
-                error != null -> "Nie udało się wczytać pakietów. $error"
-                shop == null -> "Wczytuję pakiety."
-                shop.testLeftUsd > 0 -> "Tryb testowy. Nic nie płacisz. Zostało ${usd(shop.testLeftUsd)} testowych środków."
-                else -> "Tryb testowy. Limit testowych środków jest wyczerpany, więc zakupy są tylko symulowane."
+                error != null -> tr("Nie udało się wczytać pakietów. $error", "Couldn't load the packs. $error")
+                shop == null -> tr("Wczytuję pakiety.", "Loading packs.")
+                shop.testLeftUsd > 0 -> tr(
+                    "Tryb testowy. Nic nie płacisz. Zostało ${usd(shop.testLeftUsd)} testowych środków.",
+                    "Test mode. You don't pay anything. ${usd(shop.testLeftUsd)} of test funds left.",
+                )
+                else -> tr(
+                    "Tryb testowy. Limit testowych środków jest wyczerpany, więc zakupy są tylko symulowane.",
+                    "Test mode. The test funds are used up, so purchases are only simulated.",
+                )
             },
         )
         if (error != null) {
             Spacer(Modifier.height(14.dp))
-            GhostButton("Spróbuj ponownie", onClick = onRetry)
+            GhostButton(tr("Spróbuj ponownie", "Try again"), onClick = onRetry)
         }
         Spacer(Modifier.height(18.dp))
         shop?.packages?.forEach { pack ->
@@ -578,7 +586,7 @@ fun ShopTab(shop: Shop?, error: String?, holder: String, onRetry: () -> Unit, on
                         label = "packAction",
                     ) { on ->
                         Text(
-                            if (on) "Kup" else "Wybierz",
+                            if (on) tr("Kup", "Buy") else tr("Wybierz", "Choose"),
                             color = pillText,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
@@ -619,14 +627,14 @@ private fun AccountSwitcher(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                if (others.isEmpty()) "Dodaj kolejne konto" else "Przełącz konto (${accounts.size})",
+                if (others.isEmpty()) tr("Dodaj kolejne konto", "Add another account") else tr("Przełącz konto (${accounts.size})", "Switch account (${accounts.size})"),
                 color = Paper,
                 fontWeight = FontWeight.Bold,
             )
             val turn by animateFloatAsState(if (open) 180f else 0f, motionSpec(260), label = "chevron")
             Icon(
                 painterResource(R.drawable.ic_chevron_down),
-                contentDescription = if (open) "Zwiń" else "Rozwiń",
+                contentDescription = if (open) tr("Zwiń", "Collapse") else tr("Rozwiń", "Expand"),
                 tint = Mist,
                 modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
             )
@@ -661,11 +669,15 @@ private fun AccountSwitcher(
                         }
                     }
                 }
-                GhostButton("Zaloguj inne konto", onClick = onAdd)
+                GhostButton(tr("Zaloguj inne konto", "Sign in to another account"), onClick = onAdd)
                 Spacer(Modifier.height(8.dp))
                 Lead(
-                    "Odcisk palca odblokowuje aplikację. Konta wybierasz tutaj — " +
-                        "każde ma własne rozmowy i własne saldo.",
+                    tr(
+                        "Odcisk palca odblokowuje aplikację. Konta wybierasz tutaj — " +
+                            "każde ma własne rozmowy i własne saldo.",
+                        "Your fingerprint unlocks the app. You pick the account here — " +
+                            "each has its own chats and its own balance.",
+                    ),
                 )
             }
         }
@@ -688,7 +700,7 @@ fun AccountTab(
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Pad),
     ) {
-        SectionTitle("Konto", Modifier.padding(top = 10.dp, bottom = 18.dp))
+        SectionTitle(tr("Konto", "Account"), Modifier.padding(top = 10.dp, bottom = 18.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -753,13 +765,13 @@ fun AccountTab(
             Spacer(Modifier.height(12.dp))
             if (plan == null) {
                 // Serwer nie liczy jeszcze planu (brak /profile) — nie udajemy zera doladowan.
-                Text("Plan pojawi się, gdy serwer zacznie go liczyć.", color = Mist, fontSize = 14.sp)
+                Text(tr("Plan pojawi się, gdy serwer zacznie go liczyć.", "The plan will appear once the server starts tracking it."), color = Mist, fontSize = 14.sp)
             } else {
                 Text(
                     usd(plan.paidUsd),
                     color = Paper, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold,
                 )
-                Text("łącznie doładowań, bez testowych", color = Mist, fontSize = 13.sp)
+                Text(tr("łącznie doładowań, bez testowych", "topped up in total, excluding test funds"), color = Mist, fontSize = 13.sp)
             }
             if (plan?.nextName != null) {
                 Spacer(Modifier.height(16.dp))
@@ -772,24 +784,24 @@ fun AccountTab(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Do planu ${plan.nextName} brakuje ${usd(plan.missingUsd)}.",
+                    tr("Do planu ${plan.nextName} brakuje ${usd(plan.missingUsd)}.", "${usd(plan.missingUsd)} more to reach the ${plan.nextName} plan."),
                     color = Mist, fontSize = 13.sp,
                 )
             }
         }
 
         Spacer(Modifier.height(22.dp))
-        StatRow("Saldo", usage?.let { usd(it.balanceUsd) } ?: user?.let { usd(it.balanceUsd) } ?: "–")
-        StatRow("Wydane w 30 dni", usage?.let { usd(it.spentUsd) } ?: "–")
-        StatRow("Tokeny w 30 dni", usage?.let { int(it.tokens) } ?: "–")
-        StatRow("Doładowania", plan?.topups?.toString() ?: "–")
+        StatRow(tr("Saldo", "Balance"), usage?.let { usd(it.balanceUsd) } ?: user?.let { usd(it.balanceUsd) } ?: "–")
+        StatRow(tr("Wydane w 30 dni", "Spent in 30 days"), usage?.let { usd(it.spentUsd) } ?: "–")
+        StatRow(tr("Tokeny w 30 dni", "Tokens in 30 days"), usage?.let { int(it.tokens) } ?: "–")
+        StatRow(tr("Doładowania", "Top-ups"), plan?.topups?.toString() ?: "–")
 
         Spacer(Modifier.height(24.dp))
-        PrimaryButton("Doładuj saldo", onClick = onTopUp)
+        PrimaryButton(tr("Doładuj saldo", "Top up balance"), onClick = onTopUp)
         Spacer(Modifier.height(10.dp))
-        GhostButton("Ustawienia", onClick = onSettings)
+        GhostButton(tr("Ustawienia", "Settings"), onClick = onSettings)
         Spacer(Modifier.height(10.dp))
-        GhostButton("Wyloguj się", busy = busy, onClick = onLogout)
+        GhostButton(tr("Wyloguj się", "Sign out"), busy = busy, onClick = onLogout)
         Spacer(Modifier.height(28.dp))
     }
 }
@@ -809,12 +821,14 @@ private fun StatRow(label: String, value: String) {
 }
 
 // ---------- Dolna nawigacja ----------
-enum class Tab(val label: String, val icon: Int) {
-    Chat("Czat", R.drawable.ic_chat),
-    Agents("Agenci", R.drawable.ic_agents),
-    Shop("Sklep", R.drawable.ic_shop),
-    Browser("Sieć", R.drawable.ic_web),
-    Account("Konto", R.drawable.ic_user),
+enum class Tab(private val pl: String, private val en: String, val icon: Int) {
+    Chat("Czat", "Chat", R.drawable.ic_chat),
+    Agents("Agenci", "Agents", R.drawable.ic_agents),
+    Shop("Sklep", "Shop", R.drawable.ic_shop),
+    Browser("Sieć", "Web", R.drawable.ic_web),
+    Account("Konto", "Account", R.drawable.ic_user);
+
+    val label: String get() = tr(pl, en)
 }
 
 @Composable
@@ -905,7 +919,7 @@ fun TopBalance(balance: Double, bump: Int, onSettings: () -> Unit, onClick: () -
                 .clickable { onSettings() },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_settings), "Ustawienia", tint = Paper, modifier = Modifier.size(19.dp))
+            Icon(painterResource(R.drawable.ic_settings), tr("Ustawienia", "Settings"), tint = Paper, modifier = Modifier.size(19.dp))
         }
         }
     }

@@ -48,9 +48,9 @@ class BrowserHolder {
     }
 }
 
-private val quickLinks = listOf(
+private fun quickLinks() = listOf(
     QuickLink("DuckDuckGo", "https://duckduckgo.com"),
-    QuickLink("Wikipedia", "https://pl.wikipedia.org"),
+    QuickLink("Wikipedia", tr("https://pl.wikipedia.org", "https://en.wikipedia.org")),
     QuickLink("GitHub", "https://github.com"),
     QuickLink("YouTube", "https://youtube.com"),
     QuickLink("Hacker News", "https://news.ycombinator.com"),
@@ -130,7 +130,7 @@ fun BrowserTab(
                             Spacer(Modifier.width(8.dp))
                         }
                         Text(
-                            if (started) host(url) else "Wpisz adres albo szukaj",
+                            if (started) host(url) else tr("Wpisz adres albo szukaj", "Type an address or search"),
                             color = if (started) Paper else Mist,
                             fontSize = 15.sp,
                             maxLines = 1,
@@ -232,7 +232,7 @@ fun BrowserTab(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Ghost(size = 20.dp, modifier = Modifier.padding(end = 8.dp))
-                Text("Zapytaj AI", color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(tr("Zapytaj AI", "Ask AI"), color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
         }
     }
@@ -240,26 +240,26 @@ fun BrowserTab(
     if (askOpen) {
         ModalBottomSheet(onDismissRequest = { askOpen = false }, containerColor = Raise, contentColor = Paper) {
             Column(Modifier.padding(horizontal = 22.dp).padding(bottom = 28.dp)) {
-                SectionTitle("Zapytaj o stronę")
+                SectionTitle(tr("Zapytaj o stronę", "Ask about the page"))
                 Spacer(Modifier.height(8.dp))
                 Lead(
                     when {
-                        agent == null -> "Najpierw wybierz agenta w zakładce Agenci."
-                        !started -> "Najpierw otwórz jakąś stronę."
+                        agent == null -> tr("Najpierw wybierz agenta w zakładce Agenci.", "First pick an agent in the Agents tab.")
+                        !started -> tr("Najpierw otwórz jakąś stronę.", "Open a page first.")
                         else -> "Agent: $agent · ${host(url)}"
                     },
                 )
                 Spacer(Modifier.height(16.dp))
-                Field(question, "Pytanie", { question = it })
+                Field(question, tr("Pytanie", "Question"), { question = it })
                 Spacer(Modifier.height(10.dp))
-                Lead("Puste pytanie oznacza streszczenie strony.")
+                Lead(tr("Puste pytanie oznacza streszczenie strony.", "An empty question means a summary of the page."))
                 Spacer(Modifier.height(16.dp))
-                PrimaryButton("Wyślij", busy = asking, enabled = agent != null && started) {
+                PrimaryButton(tr("Wyślij", "Send"), busy = asking, enabled = agent != null && started) {
                     val view = webView ?: return@PrimaryButton
                     view.evaluateJavascript("(function(){return document.body.innerText.slice(0,6000)})()") { raw ->
                         val text = try { JSONObject("{\"t\":$raw}").optString("t") } catch (e: Exception) { "" }
                         askOpen = false
-                        val payload = Triple(text, url, question.ifBlank { "Streść tę stronę po polsku." })
+                        val payload = Triple(text, url, question.ifBlank { tr("Streść tę stronę po polsku.", "Summarize this page in English.") })
                         question = ""
                         if (Prefs.needsAsk(Ask.AiPage)) pendingAsk = payload
                         else onAsk(payload.first, payload.second, payload.third)
@@ -271,9 +271,12 @@ fun BrowserTab(
 
     pendingAsk?.let { (text, address, q) ->
         PermissionDialog(
-            title = "Wysłać stronę do modelu?",
+            title = tr("Wysłać stronę do modelu?", "Send the page to the model?"),
             what = host(address),
-            detail = "Do agenta pójdzie ${text.length} znaków treści strony oraz pytanie: $q",
+            detail = tr(
+                "Do agenta pójdzie ${text.length} znaków treści strony oraz pytanie: $q",
+                "The agent will get ${text.length} characters of the page's content and the question: $q",
+            ),
             // Wysylka strony pyta zawsze, wiec „Zawsze” niczego by nie zapamietalo — nie udajemy.
             allowAlways = false,
             onAllowOnce = { onAsk(text, address, q); pendingAsk = null },
@@ -294,14 +297,14 @@ fun BrowserTab(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Ghost(size = 28.dp)
                     Spacer(Modifier.width(10.dp))
-                    SectionTitle("Odpowiedź")
+                    SectionTitle(tr("Odpowiedź", "Answer"))
                 }
                 Spacer(Modifier.height(12.dp))
                 androidx.compose.foundation.text.selection.SelectionContainer {
                     ChatMarkdown(answer, Paper)
                 }
                 Spacer(Modifier.height(20.dp))
-                GhostButton("Zamknij", onClick = onCloseAnswer)
+                GhostButton(tr("Zamknij", "Close"), onClick = onCloseAnswer)
             }
         }
     }
@@ -357,15 +360,15 @@ internal fun StartPage(onOpen: (String) -> Unit, onSearch: (String) -> Unit) {
         Spacer(Modifier.height(40.dp))
         Ghost(size = 92.dp, floating = true)
         Spacer(Modifier.height(18.dp))
-        Text("Przeglądaj z agentem", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Paper)
+        Text(tr("Przeglądaj z agentem", "Browse with an agent"), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Paper)
         Spacer(Modifier.height(8.dp))
-        Lead("Otwórz stronę, a potem zapytaj o nią asystenta.", center = true)
+        Lead(tr("Otwórz stronę, a potem zapytaj o nią asystenta.", "Open a page, then ask the assistant about it."), center = true)
         Spacer(Modifier.height(22.dp))
-        Field(query, "Szukaj albo wpisz adres", { query = it })
+        Field(query, tr("Szukaj albo wpisz adres", "Search or type an address"), { query = it })
         Spacer(Modifier.height(12.dp))
-        PrimaryButton("Otwórz") { if (query.isNotBlank()) onSearch(query) }
+        PrimaryButton(tr("Otwórz", "Open")) { if (query.isNotBlank()) onSearch(query) }
         Spacer(Modifier.height(26.dp))
-        quickLinks.chunked(2).forEach { pair ->
+        quickLinks().chunked(2).forEach { pair ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 pair.forEach { link ->
                     Box(
