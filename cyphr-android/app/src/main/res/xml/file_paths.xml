@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pliki, ktore CYPHR moze przekazac innej aplikacji: zalaczniki i obrazy z rozmow
+     („Udostepnij”) oraz pobrany z F-Droid Termux dla instalatora Androida. Zawsze jeden
+     konkretny plik, tylko do odczytu, na jedno wskazanie uzytkownika. -->
+<paths>
+    <files-path name="att" path="att/" />
+    <cache-path name="termux" path="termux/" />
+</paths>
