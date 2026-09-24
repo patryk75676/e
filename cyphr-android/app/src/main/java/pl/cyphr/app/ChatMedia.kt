@@ -138,6 +138,24 @@ object Composer {
 
     fun consumeText(): String? = _sharedText.value.also { _sharedText.value = null }
 
+    /**
+     * Wiadomosci z kolejki wracaja do pola po „Stop”: tekst do wpisywanego, zalaczniki na
+     * wolne miejsca. Co sie nie miesci, jest usuwane — to kopie, oryginaly zostaja w telefonie.
+     * Zwraca, ile zalacznikow sie nie zmiescilo.
+     */
+    fun restore(context: Context, text: String, attachments: List<Attachment>): Int {
+        val free = (Attachments.MAX_PER_MESSAGE - _staged.value.size - _importing.value).coerceAtLeast(0)
+        val keep = attachments.take(free)
+        val drop = attachments.drop(free)
+        if (keep.isNotEmpty()) _staged.value = _staged.value + keep
+        if (drop.isNotEmpty()) {
+            val app = context.applicationContext
+            scope.launch(Dispatchers.IO) { Attachments.delete(app, drop) }
+        }
+        if (text.isNotBlank()) _sharedText.value = listOfNotNull(_sharedText.value, text).joinToString("\n")
+        return drop.size
+    }
+
     /** Obraz ze schowka, dla ktorego podpowiedz „Wklej” juz zniknela (wklejony albo schowany). */
     var clipHandled by mutableStateOf<Long?>(null)
 

@@ -10,6 +10,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,6 +35,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -85,8 +88,8 @@ fun ChatTab(
     memory: Memory,
     chatTitle: String,
     chatId: String,
-    /** Tekst i zalaczniki z pola wpisywania. */
-    onSend: (String, List<Attachment>) -> Unit,
+    /** Tekst i zalaczniki z pola wpisywania; zwraca, czy wiadomosc poszla (pole sie czysci). */
+    onSend: (String, List<Attachment>) -> Boolean,
     onPickAgent: () -> Unit,
     onOpenChats: () -> Unit,
     /** Usuwa wiadomosc o tym indeksie; zwraca, czy sie udalo. */
@@ -106,6 +109,12 @@ fun ChatTab(
     /** Tekst udostepniony z innej aplikacji — trafia do pola raz. */
     sharedText: String? = null,
     onSharedTextUsed: () -> Unit = {},
+    /** Wiadomosci wyslane w trakcie odpowiedzi — pojda same, gdy model skonczy. */
+    queued: List<ChatEngine.Queued> = emptyList(),
+    /** „Stop”: przerywa myslenie modelu (takze czekanie na zgode na polecenie). */
+    onStop: () -> Unit = {},
+    /** „×” na wiadomosci w kolejce. */
+    onUnqueue: (Long) -> Unit = {},
 ) {
     // TextFieldValue, a nie String: po wstawieniu podpowiedzi kursor ma stac na koncu.
     var draft by remember { mutableStateOf(TextFieldValue("")) }
@@ -169,14 +178,18 @@ fun ChatTab(
 
     // Nowa wiadomosc przewija na dol. Usunieta — nie: usuwasz cos ze srodka historii
     // i zostajesz w tym miejscu.
-    val seen = remember(chatId) { intArrayOf(messages.size) }
-    LaunchedEffect(messages.size, thinking) {
-        val removed = messages.size < seen[0]
+    val seen = remember(chatId) { intArrayOf(messages.size, queued.size) }
+    LaunchedEffect(messages.size, thinking, queued.size) {
+        val removed = messages.size < seen[0] || (queued.size < seen[1] && messages.size == seen[0])
         seen[0] = messages.size
+        seen[1] = queued.size
         if (removed) return@LaunchedEffect
-        val last = messages.size + if (thinking) 1 else 0
+        val last = messages.size + (if (thinking) 1 else 0) + queued.size
         if (last > 0) listState.animateScrollToItem(last - 1)
     }
+
+    // Odpowiedz, ktora jeszcze sie wypisuje. Bez animacji wszystko jest od razu na ekranie.
+    val writing = Prefs.animations && (typed until messages.size).any { !messages[it].fromUser }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(
@@ -301,16 +314,37 @@ fun ChatTab(
                             if (drawing) DrawingBubble() else TypingBubble(agent)
                         }
                     }
+                    // Wyslane w trakcie odpowiedzi: pojda same, gdy model skonczy.
+                    items(queued, key = { "q" + it.id }) { q ->
+                        QueuedBubble(
+                            q,
+                            onRemove = { onUnqueue(q.id) },
+                            onOpenMedia = { viewing = it },
+                            modifier = Modifier.animateItemPlacement(motionSpec(260)),
+                        )
+                    }
                 }
             }
         }
 
         // Sam obraz bez slowa tez mozna wyslac. Czekamy tylko, az pliki sie wczytaja.
-        val enabled = (draft.text.isNotBlank() || staged.isNotEmpty()) && importing == 0 && !thinking
+        // W trakcie odpowiedzi tez: wiadomosc czeka w kolejce i idzie sama, gdy model skonczy.
+        val canSend = (draft.text.isNotBlank() || staged.isNotEmpty()) && importing == 0
+        // Puste pole, a model mysli albo odpowiedz sie wypisuje — przycisk zatrzymuje.
+        val stopMode = (thinking || writing) && draft.text.isBlank() && staged.isEmpty() && importing == 0
+        val enabled = canSend || stopMode
         val send = {
-            if (enabled) {
-                onSend(draft.text.trim(), staged)
+            if (canSend && onSend(draft.text.trim(), staged)) {
                 draft = TextFieldValue("")
+                // Wypisywana odpowiedz od razu w calosci — nowa wiadomosc jest juz pod nia.
+                typed = messages.size
+            }
+        }
+        val stop = {
+            if (stopMode) {
+                // Wypisywanie to tylko efekt — cala odpowiedz juz jest, wiec pokazujemy ja od razu.
+                typed = messages.size
+                if (thinking) onStop()
             }
         }
         StagedStrip(staged, importing, onRemove = onRemoveAttachment, onOpen = { viewing = it })
@@ -354,7 +388,12 @@ fun ChatTab(
                 value = draft,
                 onValueChange = { draft = it },
                 // Jedna linia: na waskim ekranie obok „+” podpowiedz nie moze rozpychac pola.
-                placeholder = { Text(tr("Napisz wiadomość", "Write a message"), color = Mist, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = {
+                    Text(
+                        if (thinking) tr("Następna wiadomość", "Next message") else tr("Napisz wiadomość", "Write a message"),
+                        color = Mist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 maxLines = 5,
                 shape = RoundedCornerShape(26.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -385,13 +424,22 @@ fun ChatTab(
                     .background(sendBg),
                 contentAlignment = Alignment.Center,
             ) {
-                IconButton(onClick = send, enabled = enabled) {
-                    Icon(
-                        painterResource(R.drawable.ic_send),
-                        contentDescription = tr("Wyślij", "Send"),
-                        tint = sendFg,
-                        modifier = Modifier.size(20.dp),
-                    )
+                IconButton(onClick = { if (stopMode) stop() else send() }, enabled = enabled) {
+                    AnimatedContent(
+                        targetState = stopMode,
+                        transitionSpec = {
+                            (fadeIn(motionSpec(180)) + scaleIn(motionSpec(180), initialScale = 0.6f))
+                                .togetherWith(fadeOut(motionSpec(120)) + scaleOut(motionSpec(120), targetScale = 0.6f))
+                        },
+                        label = "sendStop",
+                    ) { stopping ->
+                        Icon(
+                            painterResource(if (stopping) R.drawable.ic_stop else R.drawable.ic_send),
+                            contentDescription = if (stopping) tr("Zatrzymaj", "Stop") else tr("Wyślij", "Send"),
+                            tint = sendFg,
+                            modifier = Modifier.size(if (stopping) 22.dp else 20.dp),
+                        )
+                    }
                 }
             }
         }
@@ -743,6 +791,59 @@ private fun styled(spans: List<Markdown.Span>, limit: Int = Int.MAX_VALUE): Anno
             Markdown.Style.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(part) }
             Markdown.Style.Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Raise)) {
                 append(part)
+            }
+        }
+    }
+}
+
+/**
+ * Wiadomosc w kolejce: jak wlasna, ale przygaszona, z dopiskiem, ze pojdzie po odpowiedzi,
+ * i z „×”, ktore ja wyjmuje (razem z zalacznikami).
+ */
+@Composable
+private fun QueuedBubble(
+    q: ChatEngine.Queued,
+    onRemove: () -> Unit,
+    onOpenMedia: (Attachment) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val appear = remember { Animatable(if (Prefs.animations) 0f else 1f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, motionSpec(260)) }
+    val shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 10f * density },
+        horizontalAlignment = Alignment.End,
+    ) {
+        if (q.attachments.isNotEmpty()) {
+            Box(Modifier.fillMaxWidth(0.86f).wrapContentWidth(Alignment.End).graphicsLayer { alpha = 0.55f }) {
+                MessageMedia(q.attachments, fromUser = true, onOpen = { a, _ -> onOpenMedia(a) })
+            }
+            if (q.text.isNotBlank()) Spacer(Modifier.height(6.dp))
+        }
+        if (q.text.isNotBlank()) {
+            Box(
+                Modifier
+                    .fillMaxWidth(0.86f)
+                    .wrapContentWidth(Alignment.End)
+                    .graphicsLayer { alpha = 0.55f }
+                    .clip(shape)
+                    .background(Paper)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(q.text, color = Ink, fontSize = 15.sp)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(tr("W kolejce — wyśle się po odpowiedzi", "Queued — sends after the reply"), color = Mist, fontSize = 12.sp)
+            IconButton(onClick = onRemove, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_close),
+                    contentDescription = tr("Usuń z kolejki", "Remove from queue"),
+                    tint = Mist,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
     }

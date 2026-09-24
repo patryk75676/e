@@ -88,6 +88,17 @@ object ChatEngine {
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 16)
     val events: SharedFlow<Event> = _events
 
+    /**
+     * Wiadomosc wyslana, gdy model jeszcze odpowiada w tej rozmowie. Czeka i idzie sama, gdy
+     * odpowiedz sie skonczy. Zalaczniki leza do tego czasu w katalogu tymczasowym pola wpisywania.
+     */
+    data class Queued(val id: Long, val uid: Long, val model: String, val text: String, val attachments: List<Attachment>)
+
+    private val _queued = MutableStateFlow<Map<String, List<Queued>>>(emptyMap())
+    /** Czekajace wiadomosci wedlug rozmowy. */
+    val queued: StateFlow<Map<String, List<Queued>>> = _queued
+    private var queuedIds = 0L
+
     /** Czy ekran aplikacji jest widoczny. Gdy nie — o wyniku mowi powiadomienie. */
     @Volatile var visible = false
 
@@ -245,6 +256,8 @@ object ChatEngine {
 
     fun deleteChat(uid: Long, id: String) {
         if (uid != owner) return
+        // Czekajace wiadomosci nie maja juz dokad pojsc.
+        _queued.value[id]?.let { waiting -> _queued.value = _queued.value - id; discard(waiting) }
         // Odpowiedz do usunietej rozmowy nie ma gdzie trafic, a liczylaby sie z salda.
         jobs[id]?.second?.cancel()
         val gone = _chats.value.firstOrNull { it.id == id }
@@ -286,7 +299,41 @@ object ChatEngine {
 
     /** Przerywa odpowiedzi konta — po wylogowaniu nie powinny dalej isc z jego salda. */
     fun stop(uid: Long) {
+        // Czekajace wiadomosci tego konta tez przepadaja — nie pojda z jego salda po wylogowaniu.
+        val mine = _queued.value.filterValues { list -> list.any { it.uid == uid } }
+        if (mine.isNotEmpty()) {
+            _queued.value = _queued.value - mine.keys
+            discard(mine.values.flatten())
+        }
         jobs.values.filter { it.first == uid }.forEach { it.second.cancel() }
+    }
+
+    /**
+     * „Stop”: przerywa odpowiedz w tej rozmowie — takze czekanie na zgode na polecenie.
+     * Czekajace wiadomosci nie ida same: wracaja do wolajacego (do pola wpisywania), zeby
+     * po przerwaniu nic nie poszlo bez woli uzytkownika.
+     */
+    fun interrupt(uid: Long, chatId: String): List<Queued> {
+        if (uid != owner) return emptyList()
+        val back = _queued.value[chatId].orEmpty()
+        _queued.value = _queued.value - chatId
+        jobs[chatId]?.second?.cancel()
+        return back
+    }
+
+    /** Usuwa czekajaca wiadomosc („×” na dymku w kolejce) razem z jej plikami. */
+    fun unqueue(chatId: String, id: Long) {
+        val list = _queued.value[chatId].orEmpty()
+        val gone = list.firstOrNull { it.id == id } ?: return
+        val rest = list - gone
+        _queued.value = if (rest.isEmpty()) _queued.value - chatId else _queued.value + (chatId to rest)
+        discard(listOf(gone))
+    }
+
+    /** Pliki czekajacych wiadomosci, ktore juz nigdzie nie pojda. */
+    private fun discard(waiting: List<Queued>) {
+        val files = waiting.flatMap { it.attachments }
+        if (files.isNotEmpty()) scope.launch(disk) { Attachments.delete(app, files) }
     }
 
     /** Zgoda na polecenie: true, false albo null, gdy nikt nie odpowiedzial na czas. */
@@ -311,20 +358,56 @@ object ChatEngine {
      * Wysyla wiadomosc i dopisuje odpowiedz do rozmowy, w ktorej padlo pytanie —
      * nawet gdy w trakcie przelaczysz rozmowe, wyjdziesz z aplikacji albo ja zablokujesz.
      * [attachments] to zalaczniki z pola wpisywania; od tej chwili naleza do wiadomosci.
+     * Gdy model w tej rozmowie jeszcze odpowiada, wiadomosc czeka w kolejce i idzie sama,
+     * kiedy skonczy ([queued]).
      */
     fun send(uid: Long, chatId: String, model: String, text: String, attachments: List<Attachment> = emptyList()): Boolean {
-        if (uid != owner || chatId in _busy.value) return false
+        if (uid != owner) return false
+        val chat = _chats.value.firstOrNull { it.id == chatId } ?: return false
         // Sesja z chwili wyslania: po przelaczeniu konta odpowiedz nadal liczy sie
         // z salda konta, ktore zadalo pytanie, a nie tego, ktore jest teraz na ekranie.
         val session = Api.token() ?: return false
-        val chat = _chats.value.firstOrNull { it.id == chatId } ?: return false
-        val committed = if (attachments.isEmpty()) emptyList() else Attachments.commit(app, uid, attachments)
-        val sent = chat.messages + ChatMessage(text, true, committed)
+        if (chatId in _busy.value) {
+            val waiting = Queued(++queuedIds, uid, model, text, attachments)
+            _queued.value = _queued.value + (chatId to (_queued.value[chatId].orEmpty() + waiting))
+            return true
+        }
+        reply(uid, chatId, model, session, chat, chat.messages + ChatMessage(text, true, commit(uid, attachments)))
+        return true
+    }
+
+    private fun commit(uid: Long, attachments: List<Attachment>): List<Attachment> =
+        if (attachments.isEmpty()) emptyList() else Attachments.commit(app, uid, attachments)
+
+    /**
+     * Czekajace wiadomosci rozmowy ida jako kolejne pytanie — wszystkie naraz, kazda jako
+     * osobna wiadomosc. Zwraca, czy cos poszlo.
+     */
+    private fun sendQueued(uid: Long, chatId: String, session: String): Boolean {
+        val waiting = _queued.value[chatId].orEmpty()
+        if (waiting.isEmpty()) return false
+        _queued.value = _queued.value - chatId
+        val chat = _chats.value.firstOrNull { it.id == chatId }
+        // Inne konto na ekranie, wylogowanie albo nowa sesja — kolejka nie idzie z niczyjego salda.
+        if (uid != owner || chat == null || Api.token() != session) {
+            discard(waiting)
+            return false
+        }
+        val added = waiting.map { ChatMessage(it.text, true, commit(uid, it.attachments)) }
+        reply(uid, chatId, waiting.last().model, session, chat, chat.messages + added)
+        return true
+    }
+
+    /** Odpowiedz modelu na rozmowe [sent] — cala historie razem z nowymi wiadomosciami. */
+    private fun reply(uid: Long, chatId: String, model: String, session: String, chat: Chat, sent: List<ChatMessage>) {
         val label = chat.copy(messages = sent).label
+        // Kolejka po odpowiedzi: usluga juz dziala (rozmowa ani na chwile nie przestala byc
+        // zajeta), a start uslugi z tla Android moglby odrzucic.
+        val continuing = chatId in _busy.value
         update(uid, chatId) { it.copy(messages = sent) }
         _busy.value = _busy.value + chatId
         val name = Persona.nameOf(model)
-        ChatService.start(app, name)
+        if (!continuing) ChatService.start(app, name)
         val cachedQuota = if (uid == owner) _images.value else null
 
         // Leniwy start: praca jest na liscie, zanim zacznie sie wykonywac.
@@ -484,12 +567,13 @@ object ChatEngine {
                 }
             } finally {
                 jobs.remove(chatId)
-                _busy.value = _busy.value - chatId
+                // Czekajace wiadomosci ida od razu. Rozmowa ani na chwile nie przestaje byc
+                // zajeta, wiec usluga w tle nie gasnie miedzy odpowiedziami.
+                if (!sendQueued(uid, chatId, session)) _busy.value = _busy.value - chatId
             }
         }
         jobs[chatId] = uid to job
         job.start()
-        return true
     }
 }
 

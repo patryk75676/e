@@ -379,6 +379,7 @@ private fun CyphrApp(
     val lastTokens by ChatEngine.lastTokens.collectAsState()
     val approval by ChatEngine.approval.collectAsState()
     val drawingChats by ChatEngine.drawing.collectAsState()
+    val queuedChats by ChatEngine.queued.collectAsState()
     val images by ChatEngine.images.collectAsState()
     val staged by Composer.staged.collectAsState()
     val importing by Composer.importing.collectAsState()
@@ -928,15 +929,45 @@ private fun CyphrApp(
                                     onSend = { text, _ ->
                                         val model = selectedAgent
                                         val uid = user?.id
-                                        if (model == null) { toast = tr("Najpierw wybierz agenta.", "Pick an agent first."); return@ChatTab }
-                                        if (uid == null) return@ChatTab
+                                        if (model == null) { toast = tr("Najpierw wybierz agenta.", "Pick an agent first."); return@ChatTab false }
+                                        if (uid == null) return@ChatTab false
                                         // Odpowiedz trafia do rozmowy, w ktorej padlo pytanie —
                                         // nawet gdy przelaczysz rozmowe albo wyjdziesz z aplikacji.
+                                        // W trakcie odpowiedzi wiadomosc czeka w kolejce i idzie sama po niej.
                                         // Zalaczniki opuszczaja pole dopiero, gdy wiadomosc naprawde poszla.
-                                        if (ChatEngine.send(uid, active.id, model, text, Composer.staged.value)) Composer.take()
+                                        val sent = ChatEngine.send(uid, active.id, model, text, Composer.staged.value)
+                                        if (sent) Composer.take()
                                         // O gotowej odpowiedzi w tle mowi powiadomienie — pytamy o nie raz.
                                         scope.launch { NotificationPermission.askOnce(context) }
+                                        sent
                                     },
+                                    queued = queuedChats[active.id].orEmpty(),
+                                    onStop = {
+                                        user?.id?.let { uid ->
+                                            // Czekajace wiadomosci nie ida same po przerwaniu — wracaja do pola.
+                                            val back = ChatEngine.interrupt(uid, active.id)
+                                            val dropped = if (back.isEmpty()) 0 else Composer.restore(
+                                                context,
+                                                back.map { it.text }.filter { it.isNotBlank() }.joinToString("\n"),
+                                                back.flatMap { it.attachments },
+                                            )
+                                            toast = when {
+                                                back.isEmpty() -> tr("Przerwano odpowiedź.", "Reply stopped.")
+                                                dropped > 0 -> {
+                                                    val without = count(dropped, "załącznika", "załączników", "załączników", "attachment", "attachments")
+                                                    tr(
+                                                        "Przerwano odpowiedź. Wiadomości wróciły do pola, ale bez $without — najwyżej ${Attachments.MAX_PER_MESSAGE} w jednej wiadomości.",
+                                                        "Reply stopped. Your messages are back in the box, but without $without — at most ${Attachments.MAX_PER_MESSAGE} in one message.",
+                                                    )
+                                                }
+                                                else -> tr(
+                                                    "Przerwano odpowiedź. Wiadomości z kolejki wróciły do pola.",
+                                                    "Reply stopped. Your queued messages are back in the box.",
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onUnqueue = { ChatEngine.unqueue(active.id, it) },
                                     onDelete = { index ->
                                         user?.id?.let { ChatEngine.deleteMessage(it, active.id, index) } == true
                                     },
