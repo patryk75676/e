@@ -94,6 +94,9 @@ object Chats {
                     o.optBoolean("user"),
                     att?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let(Attachment::fromJson) } }
                         .orEmpty(),
+                    command = if (o.has("cmd")) o.optString("cmd") else null,
+                    output = if (o.has("out")) o.optString("out") else null,
+                    commandRan = o.optBoolean("ran"),
                 )
             },
             memory = Memory(root.optString("summary"), root.optInt("folded", 0)),
@@ -120,6 +123,9 @@ object Chats {
             chat.messages.takeLast(MAX_MESSAGES).forEach { m ->
                 val o = JSONObject().put("text", m.text).put("user", m.fromUser)
                 if (m.attachments.isNotEmpty()) o.put("att", JSONArray(m.attachments.map { it.toJson() }))
+                m.command?.let { o.put("cmd", it) }
+                m.output?.let { o.put("out", it) }
+                if (m.commandRan) o.put("ran", true)
                 arr.put(o)
             }
             val root = JSONObject()

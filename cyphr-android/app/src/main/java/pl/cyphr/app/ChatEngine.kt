@@ -457,13 +457,13 @@ object ChatEngine {
                     // Tura modelu zostaje w historii razem z poleceniem — uzytkownik widzi,
                     // co idzie do terminala, a model wie, o co sam poprosil.
                     val spoken = ImageTools.withoutCall(AgentTools.withoutCall(reply.text))
-                    history = history + ChatMessage(
-                        listOf(spoken, "$ $cmd").filter { it.isNotBlank() }.joinToString("\n\n"),
-                        false,
-                    )
+                    // Polecenie i wynik to jeden, zwijany element konsoli. Model dostaje je jako
+                    // dwie tury (jego polecenie i wynik) — to sklada Api.chat z pol [command]/[output].
+                    history = history + ChatMessage(spoken, false, command = cmd)
                     val asked = history
                     update(uid, chatId) { it.copy(messages = asked) }
-                    val result = when (ask(chatId, label, name, cmd)) {
+                    val allowed = ask(chatId, label, name, cmd)
+                    val result = when (allowed) {
                         true -> AgentTools.execute(app, cmd)
                         false -> tr("Użytkownik odmówił wykonania tego polecenia.", "The user refused to run this command.")
                         null -> tr(
@@ -471,7 +471,8 @@ object ChatEngine {
                             "The user didn't answer the permission request — the command wasn't run.",
                         )
                     }
-                    history = history + ChatMessage(tr("Wynik polecenia `$cmd`:\n$result", "Output of `$cmd`:\n$result"), true)
+                    // Ten sam element dostaje wynik — polecenie i wynik zostaja jednym dymkiem.
+                    history = history.dropLast(1) + ChatMessage(spoken, false, command = cmd, output = result, commandRan = allowed == true)
                     val answered = history
                     update(uid, chatId) { it.copy(messages = answered) }
                     reply = talk(history)

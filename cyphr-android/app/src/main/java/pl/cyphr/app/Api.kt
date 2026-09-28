@@ -95,6 +95,15 @@ data class ChatMessage(
     val text: String,
     val fromUser: Boolean,
     val attachments: List<Attachment> = emptyList(),
+    /**
+     * Polecenie do terminala (Termux albo powloka Androida), o ktore poprosil model.
+     * Sluzy tylko do pokazania konsoli — model dostaje polecenie i wynik w [text] jak dotad.
+     */
+    val command: String? = null,
+    /** Wynik polecenia w konsoli; null na turze polecenia (jeszcze sie wykonuje). */
+    val output: String? = null,
+    /** Czy polecenie sie wykonalo (false = odmowa albo brak zgody na czas). */
+    val commandRan: Boolean = false,
 )
 data class Shop(val packages: List<Pack>, val testLeftUsd: Double)
 data class Usage(val balanceUsd: Double, val spentUsd: Double, val tokens: Long)
@@ -113,7 +122,9 @@ fun estimateTokens(text: String): Int =
 const val IMAGE_TOKENS = 900
 
 /** Szacunek dla calej wiadomosci: tekst, tresc plikow i obrazy. */
-fun messageTokens(m: ChatMessage): Int = estimateTokens(m.text) + m.attachments.sumOf { a ->
+fun messageTokens(m: ChatMessage): Int = estimateTokens(m.text) +
+    (m.command?.let { estimateTokens("$ $it") } ?: 0) + (m.output?.let { estimateTokens(it) } ?: 0) +
+    m.attachments.sumOf { a ->
     when (a.kind) {
         Attachment.Kind.Text -> estimateTokens(a.text)
         Attachment.Kind.Image, Attachment.Kind.Pdf -> IMAGE_TOKENS * a.files.size.coerceAtLeast(1)
@@ -498,11 +509,24 @@ object Api {
         val withImages = if (images) imageMessages(fresh) else emptySet()
         val build = {
             fresh.forEachIndexed { i, m ->
-                arr.put(
-                    JSONObject()
-                        .put("role", if (m.fromUser) "user" else "assistant")
-                        .put("content", contentOf(m, i in withImages)),
-                )
+                if (m.command != null) {
+                    // Konsola to jeden dymek na ekranie, ale model widzi to jak dotad: swoja ture
+                    // z poleceniem, a wynik jako osobna ture uzytkownika.
+                    val call = listOf(m.text, "$ ${m.command}").filter { it.isNotBlank() }.joinToString("\n\n")
+                    arr.put(JSONObject().put("role", "assistant").put("content", call))
+                    m.output?.let { out ->
+                        arr.put(
+                            JSONObject().put("role", "user")
+                                .put("content", tr("Wynik polecenia `${m.command}`:\n$out", "Output of `${m.command}`:\n$out")),
+                        )
+                    }
+                } else {
+                    arr.put(
+                        JSONObject()
+                            .put("role", if (m.fromUser) "user" else "assistant")
+                            .put("content", contentOf(m, i in withImages)),
+                    )
+                }
             }
         }
         // Zdjecia czytamy z dysku poza watkiem ekranu; sam tekst jest juz w pamieci.
@@ -611,7 +635,11 @@ object Api {
         if (toFold.isEmpty()) return memory
 
         val transcript = toFold.joinToString("\n") { m ->
-            (if (m.fromUser) tr("Użytkownik: ", "User: ") else tr("Asystent: ", "Assistant: ")) + m.text +
+            val head = if (m.fromUser) tr("Użytkownik: ", "User: ") else tr("Asystent: ", "Assistant: ")
+            val cmd = m.command?.let { c ->
+                "\n$ $c" + (m.output?.let { tr("\nWynik: ", "\nOutput: ") + it.take(2000) } ?: "")
+            } ?: ""
+            head + m.text + cmd +
                 m.attachments.joinToString("") { a ->
                     " [" + Attachments.describe(a) + "]" +
                         (if (a.kind == Attachment.Kind.Text) " " + a.text.take(2000) else "")

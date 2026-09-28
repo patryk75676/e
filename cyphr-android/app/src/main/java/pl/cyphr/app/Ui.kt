@@ -38,6 +38,8 @@ val Paper = Color(0xFFFFFFFF)
 val Mist = Color(0xFF8E8E8E)
 val Line = Color(0xFF2E2E2E)
 val Raise = Color(0xFF161616)
+val Term = Color(0xFF5FD39B)
+val Console = Color(0xFF0C0C0F)
 
 private val cyphrColors = darkColorScheme(
     primary = Paper, onPrimary = Ink,

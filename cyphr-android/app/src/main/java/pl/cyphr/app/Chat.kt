@@ -46,6 +46,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.TransformOrigin
@@ -292,21 +293,37 @@ fun ChatTab(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     itemsIndexed(messages, key = { i, _ -> keys[i] }) { i, message ->
-                        Bubble(
-                            message = message,
-                            onOpenMedia = { viewing = it },
-                            onNote = onNote,
-                            typing = !message.fromUser && i >= typed,
-                            animate = i >= baseline,
-                            onTyped = { if (typed <= i) typed = i + 1 },
-                            actions = actionsFor == i,
-                            // W trakcie odpowiedzi historia sie zapisuje — usuwanie poczeka.
-                            canDelete = !thinking,
-                            onToggleActions = { actionsFor = if (actionsFor == i) null else i },
-                            onDelete = { actionsFor = null; confirmDelete = i to message },
-                            // Po usunieciu reszta dymkow dosuwa sie plynnie, a nie skacze.
-                            modifier = Modifier.animateItemPlacement(motionSpec(260)),
-                        )
+                        val mod = Modifier.animateItemPlacement(motionSpec(260))
+                        val cmd = message.command
+                        when {
+                            // Polecenie i jego wynik: jeden zwijany element konsoli (proza modelu
+                            // nad nim). Model widzi tresc — na ekranie jest zwinieta, do rozwiniecia.
+                            cmd != null -> TerminalTurn(
+                                spoken = message.text,
+                                command = cmd,
+                                output = message.output,
+                                ran = message.commandRan,
+                                running = i == messages.lastIndex && thinking,
+                                animate = i >= baseline,
+                                onShown = { if (typed <= i) typed = i + 1 },
+                                modifier = mod,
+                            )
+                            else -> Bubble(
+                                message = message,
+                                onOpenMedia = { viewing = it },
+                                onNote = onNote,
+                                typing = !message.fromUser && i >= typed,
+                                animate = i >= baseline,
+                                onTyped = { if (typed <= i) typed = i + 1 },
+                                actions = actionsFor == i,
+                                // W trakcie odpowiedzi historia sie zapisuje — usuwanie poczeka.
+                                canDelete = !thinking,
+                                onToggleActions = { actionsFor = if (actionsFor == i) null else i },
+                                onDelete = { actionsFor = null; confirmDelete = i to message },
+                                // Po usunieciu reszta dymkow dosuwa sie plynnie, a nie skacze.
+                                modifier = mod,
+                            )
+                        }
                     }
                     if (thinking) {
                         item(key = "typing") {
@@ -791,6 +808,102 @@ private fun styled(spans: List<Markdown.Span>, limit: Int = Int.MAX_VALUE): Anno
             Markdown.Style.Italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(part) }
             Markdown.Style.Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Raise)) {
                 append(part)
+            }
+        }
+    }
+}
+
+/**
+ * Polecenie modelu do terminala jako jeden, zwijany element konsoli: „$ polecenie” z ikoną,
+ * a pod spodem — po dotknięciu — wynik. Domyślnie zwinięty: model streszcza wynik w odpowiedzi,
+ * a surowy wynik jest do rozwinięcia, gdy ktoś chce zajrzeć. Nad konsolą krótka proza modelu.
+ */
+@Composable
+private fun TerminalTurn(
+    spoken: String,
+    command: String,
+    output: String?,
+    ran: Boolean,
+    running: Boolean,
+    animate: Boolean,
+    onShown: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Konsola pojawia sie od razu (nie „pisze sie” jak dymek) i przesuwa granice pisania.
+    LaunchedEffect(Unit) { onShown() }
+    val appear = remember { Animatable(if (animate && Prefs.animations) 0f else 1f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, motionSpec(300)) }
+    var open by remember { mutableStateOf(false) }
+    Column(
+        modifier.fillMaxWidth().graphicsLayer { alpha = appear.value; translationY = (1f - appear.value) * 10f * density },
+        horizontalAlignment = Alignment.Start,
+    ) {
+        if (spoken.isNotBlank()) {
+            val shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+            Box(
+                Modifier.fillMaxWidth(0.92f).clip(shape).border(1.5.dp, Line, shape).padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                SelectionContainer { ChatMarkdown(spoken, Paper) }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        val box = RoundedCornerShape(12.dp)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(box)
+                .background(Console)
+                .border(1.dp, Line, box)
+                .clickable(enabled = output != null) { open = !open },
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(painterResource(R.drawable.ic_terminal), tr("Terminal", "Terminal"), tint = Term, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "$ $command",
+                    color = Paper,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    maxLines = if (open) 4 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                when {
+                    running -> Text(tr("uruchamiam…", "running…"), color = Mist, fontFamily = FontFamily.Monospace, fontSize = 12.sp, maxLines = 1)
+                    output != null -> Icon(
+                        painterResource(R.drawable.ic_chevron_down),
+                        contentDescription = if (open) tr("Zwiń", "Collapse") else tr("Rozwiń wynik", "Expand output"),
+                        tint = Mist,
+                        modifier = Modifier.size(18.dp).rotate(if (open) 180f else 0f),
+                    )
+                    !ran -> Icon(
+                        painterResource(R.drawable.ic_close),
+                        tr("Nie wykonano", "Not run"),
+                        tint = Mist,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+            if (open && output != null) {
+                HorizontalDivider(color = Line, thickness = 1.dp)
+                SelectionContainer {
+                    Box(
+                        Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            output.ifBlank { tr("(polecenie nic nie wypisało)", "(the command printed nothing)") },
+                            color = if (ran) Color(0xFFD7D7D7) else Mist,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.5.sp,
+                            lineHeight = 17.sp,
+                        )
+                    }
+                }
             }
         }
     }
