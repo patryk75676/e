@@ -1,0 +1,188 @@
+# CYPHR — aplikacja Android
+
+Natywna aplikacja w Kotlinie i Jetpack Compose. Czarno-biała, z logo duszka.
+
+Zakładki:
+- **Czat** — rozmowa z wybranym modelem przez `/v1/chat/completions`, dymki z animacją wejścia,
+  podpowiedzi na pustym ekranie, kopiowanie odpowiedzi jednym dotknięciem i wskaźnik „… myśli”.
+  Przycisk „+” dodaje do wiadomości zdjęcia i zrzuty ekranu (model je widzi), PDF-y
+  (pierwsze 4 strony jako obrazy) i pliki tekstowe; obraz ze schowka można wkleić,
+  a „Udostępnij → CYPHR” z innej aplikacji wkłada plik do pola wpisywania.
+  Model tworzy też obrazy — z dziennym limitem na konto, pilnowanym przez serwer
+  (`serwer/obrazy.js`). Po dłuższej przerwie (domyślnie godzina) aplikacja otwiera się
+  na nowej rozmowie; odpowiedź, która przyszła w tle, otwiera się zawsze.
+- **Agenci** — modele CYPHR (CYPHR Flash i CYPHR Pro) z ceną z `/v1/models`, wybór zapamiętywany na stałe.
+  Modele występują wyłącznie pod nazwami CYPHR — pochodzenia nie pokazuje żaden ekran (`Persona.kt`).
+- **Sklep** — karta płatnicza rysowana w 3D (obrót, refleks światła, chip), zakup obraca kartę i kończy znakiem potwierdzenia. Płatność jest testowa.
+- **Sieć** — przeglądarka z paskiem adresu w formie pigułki (kłódka i sama domena),
+  stroną startową ze skrótami, własnym paskiem narzędzi i przyciskiem „Zapytaj AI”,
+  który wysyła treść otwartej strony do modelu.
+- **Konto** — imię i e-mail, biała karta z aktualnym planem (Free, Plus, Pro),
+  paskiem postępu do następnego progu, sumą doładowań, saldem i zużyciem w 30 dni.
+- **Ustawienia** (ikona w prawym górnym rogu) — język, instrukcje dla modelu, bezpieczeństwo,
+  przeglądarka, animacje, terminal z Termuksem i wylogowanie. Bez ustawień technicznych:
+  aplikacja zawsze łączy się z serwerem z `cyphr.baseUrl`.
+
+## Język
+
+Aplikacja jest po polsku albo po angielsku. Język wybiera adres IP: przy każdym
+uruchomieniu (i po powrocie po ponad godzinie) aplikacja pyta serwer `GET /v1/geo` —
+polski adres IP daje polski, każdy inny angielski. Zanim serwer odpowie (i gdy nie umie,
+np. bez modułu `jezyk.js`), obowiązuje ostatni wynik, a przy pierwszym uruchomieniu kraj
+sieci komórkowej i język telefonu. W Ustawieniach → Język można ustawić język na stałe.
+
+Teksty są w kodzie parami, `tr("po polsku", "in English")` (`I18n.kt`). Po angielsku
+idą też instrukcje dla modelu, a domyślna instrukcja każe mu odpowiadać w języku, w którym
+pisze użytkownik. Komunikaty serwera (po polsku) aplikacja tłumaczy po kodzie błędu.
+`TranslationTest` pilnuje, żeby każde `tr` miało oba teksty, a angielski nie miał polskich liter.
+
+## Uprawnienia
+
+Aplikacja pyta o zgodę przed działaniem, które coś zmienia albo wysyła dane:
+
+- zapis pliku w edytorze terminala (`edit <plik>`),
+- każde polecenie w terminalu, jeśli włączysz tę opcję,
+- wysłanie treści otwartej strony do modelu.
+
+Trybu bypass nie ma i nie będzie. Zapis pliku, polecenia groźne
+(`rm`, `mv`, `chmod`, `dd`, `curl`, przekierowania `>`) oraz wysłanie treści strony
+do modelu pytają zawsze i nie da się tego wyłączyć żadnym przełącznikiem.
+Wyłączyć można wyłącznie pytanie o zwykłe, nieszkodliwe polecenia.
+
+## Zabezpieczenia
+
+- token sesji w `EncryptedSharedPreferences` z kluczem w Android Keystore,
+- blokada wejścia odciskiem palca albo kodem ekranu (`BiometricPrompt`),
+- `FLAG_SECURE`: brak zrzutów ekranu i brak podglądu w liście ostatnich aplikacji,
+- wyłączony zwykły HTTP w całej aplikacji (`network_security_config`), także w przeglądarce,
+  która przepina adresy `http://` na `https://`,
+- WebView bez dostępu do plików, z `MIXED_CONTENT_NEVER_ALLOW` i Safe Browsing,
+- kopie zapasowe i przenoszenie na nowy telefon wyłączone (`data_extraction_rules`),
+- wersja release nie jest debugowalna.
+
+Plan konta liczy serwer w endpoint `/profile`, na podstawie sumy doładowań
+bez wliczania testowych: Free od 0 USD, Plus od 5 USD, Pro od 20 USD.
+
+Cały zestaw ikon jest własny (`res/drawable/ic_*.xml`), a dolny pasek to pigułka,
+która rozsuwa się pod wybraną zakładką i pokazuje jej nazwę.
+
+Terminal ma dwa tryby:
+
+- **Lokalny** — polecenia systemu Androida w piaskownicy aplikacji (`/system/bin/sh`),
+  z edytorem plików (`edit <plik>`). Bez `apt` i bez roota, bo tego Android nie pozwala obejść.
+- **Termux** — polecenia idą do zainstalowanego Termuksa (z F-Droid), z jego `pkg`,
+  pythonem i gitem. O zgodę na sterowanie Termuksem aplikacja prosi sama, przy
+  pierwszym poleceniu (z terminala albo od modelu). Stan połączenia i konfigurację
+  krok po kroku pokazuje Ustawienia → Terminal.
+
+Termux z Google Play (wersje `googleplay.*`) nie przyjmuje poleceń od innych aplikacji —
+nie ma w nim uprawnienia `RUN_COMMAND`. Aplikacja rozpoznaje go i przy wejściu proponuje
+wymianę. Termuksa instaluje się jednym przyciskiem (Ustawienia → Terminal): CYPHR pobiera
+oficjalny plik z F-Droid, sprawdza, że to pakiet `com.termux` podpisany kluczem F-Droid
+(SHA-256 `228fb2cf…1c42`), i otwiera instalator Androida. Wersję z Play najpierw odinstalowuje
+się systemowym oknem. Każdy krok zatwierdza użytkownik w oknie Androida.
+
+Trybu SSH już nie ma — aplikacja jest dla klientów, a starsze wersje przy pierwszym
+uruchomieniu nowej kasują zapisane dane SSH i własny adres serwera.
+
+## Obrazy na serwerze
+
+Tworzenie obrazów i większe zapytania czatu (zdjęcia) dokłada moduł `serwer/obrazy.js`.
+Wgraj `obrazy.js` i `dodaj-obrazy.js` do `~/cyphr-api` i uruchom:
+
+```
+cd ~/cyphr-api && node dodaj-obrazy.js
+```
+
+Instalator sprawdza klucz `ROUTEWAY_API_KEY` i model u dostawcy, tworzy jeden próbny
+obraz (ok. 0,01 USD; `--bez-testu` go pomija), zakłada tabelę `image_quota`, dopisuje
+jedną linię do pliku startowego, przeładowuje aplikację i sprawdza ją z zewnątrz —
+przy błędzie wszystko cofa. Wypięcie: `node dodaj-obrazy.js --usun`.
+Opcjonalnie w `.env`: `IMAGE_DAILY_LIMIT` (domyślnie 2), `IMAGE_MODEL`
+(domyślnie `z-image-turbo`), `IMAGE_TZ` (domyślnie `Europe/Warsaw`).
+
+## Język po IP na serwerze
+
+Kraj adresu IP rozpoznaje moduł `serwer/jezyk.js` na podstawie oficjalnych statystyk
+RIPE NCC (zakresy IPv4 i IPv6 przydzielone polskim sieciom, `jezyk-pl.json`; odświeżane
+same co 30 dni). Nie czyta `.env` ani bazy i nie zapisuje adresów. Wgraj `jezyk.js`,
+`jezyk-pl.json` i `dodaj-jezyk.js` do `~/cyphr-api` i uruchom:
+
+```
+cd ~/cyphr-api && node dodaj-jezyk.js
+```
+
+Instalator sprawdza dane na znanych adresach (polskich i zagranicznych), dopisuje jedną
+linię do pliku startowego, przeładowuje aplikację i sprawdza ją z zewnątrz — przy błędzie
+cofa zmianę. Wypięcie: `node dodaj-jezyk.js --usun`.
+
+## 1. Ustawienia przed budowaniem
+
+W pliku `gradle.properties` uzupełnij dwie linijki:
+
+```
+cyphr.baseUrl=https://billing.cyphr.com.pl
+cyphr.googleWebClientId=TWOJ_WEB_CLIENT_ID.apps.googleusercontent.com
+```
+
+`cyphr.googleWebClientId` to ten sam Client ID, który masz w pliku `.env` serwera
+w polu `GOOGLE_CLIENT_ID`. Musi być typu „Aplikacja internetowa”, bo backend
+sprawdza pole `aud` tokenu. **Nie wpisuj tu identyfikatora klienta typu Android**
+(tego z nazwą pakietu i SHA-1) — Google odrzuca wtedy każde logowanie kodem 10.
+Klient Android (`pl.cyphr.app` + SHA-1 klucza, którym podpisana jest paczka) musi
+tylko istnieć w tym samym projekcie Google Cloud.
+
+## 2. Budowanie bez komputera (GitHub Actions)
+
+1. Załóż repozytorium i wrzuć do niego całą tę zawartość.
+2. Wejdź w zakładkę **Actions** i uruchom przepływ **Build APK**
+   (albo po prostu zrób push do gałęzi `main`).
+3. Po kilku minutach pobierz artefakt `cyphr-apk`. W środku jest `app-debug.apk`.
+4. Zainstaluj plik na telefonie. Trzeba zezwolić na instalację z nieznanych źródeł.
+
+## 3. Logowanie Google
+
+Potrzebne są **dwa** klienty OAuth w tym samym projekcie Google Cloud:
+
+1. **Aplikacja internetowa** — jego Client ID wpisujesz do `gradle.properties`
+   jako `cyphr.googleWebClientId`. To ten sam, który serwer ma w `.env`
+   w polu `GOOGLE_CLIENT_ID`, bo backend sprawdza pole `aud` tokenu.
+2. **Android** — nazwa pakietu `pl.cyphr.app` i odcisk SHA-1 klucza podpisującego.
+   Nic z niego nie wpisujesz w aplikacji, musi tylko istnieć.
+
+Odcisku nie musisz szukać sam. Przepływ w Actions zapisuje go do pliku
+`fingerprint.txt` i dokłada do artefaktu razem z .apk. Otwierasz plik,
+kopiujesz linię SHA1 i wklejasz w Google Cloud Console.
+
+Kolejność: pierwszy build → `fingerprint.txt` → klient Android w Google Cloud →
+Client ID aplikacji internetowej do `gradle.properties` → drugi build.
+
+## 4. Drugi składnik logowania
+
+Samo hasło albo konto Google nie wystarcza. Po zalogowaniu aplikacja prosi
+o potwierdzenie tożsamości i dopiero wtedy otwiera konto. To samo wraca,
+gdy aplikacja wróci z tła po dłuższej przerwie (domyślnie minuta)
+oraz przy zakupie w sklepie. Wyłączyć można tylko te dwa ostatnie.
+
+Okno potwierdzenia rysuje **system Androida**, nie aplikacja. Dlatego każdy
+telefon pokazuje swoje: czytnik pod ekranem podświetla miejsce dotyku,
+telefon z czytnikiem z tyłu albo w przycisku zasilania daje własną podpowiedź,
+a urządzenie z rozpoznawaniem twarzy od razu skanuje twarz. Aplikacja nigdzie
+nie pisze „dotknij czytnika”, bo nie ma pojęcia, gdzie on jest.
+
+Nazwy w interfejsie też się dopasowują. Aplikacja sprawdza, co telefon ma
+(`FEATURE_FINGERPRINT`, `FEATURE_FACE`, `FEATURE_IRIS`) i pisze „odcisk palca”,
+„skan twarzy”, „skan tęczówki” albo „kod ekranu blokady”. Gdy blokady jeszcze
+nie ma, pokazuje przycisk prowadzący prosto do systemowego ekranu jej ustawiania.
+
+## 5. Co robi backend
+
+Aplikacja korzysta z endpointów: `/auth/register`, `/auth/verify`, `/auth/resend`,
+`/auth/login`, `/auth/google`, `/me`, `/me/usage`, `/logout`, `/v1/models`,
+`/v1/chat/completions` oraz `/agents`, `/shop/packages`, `/shop/buy`
+z paczki `cyphr-app.zip`. Czat i przeglądarka liczą się z salda.
+
+## 6. Wersja do publikacji
+
+`./gradlew assembleRelease` zbuduje wersję release podpisaną kluczem debug.
+Przed wysyłką do Google Play trzeba podmienić `signingConfig` na własny keystore.
