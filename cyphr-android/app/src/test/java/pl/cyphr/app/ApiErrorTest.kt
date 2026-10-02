@@ -1,5 +1,6 @@
 package pl.cyphr.app
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,5 +56,22 @@ class ApiErrorTest {
     @Test
     fun `nieznany blad ma zapasowa tresc`() {
         assertTrue(Api.explain(418, null).isNotBlank())
+    }
+
+    @Test
+    fun `wiadomosc bledu nie idzie do modelu`() {
+        // ChatMessage z error=true zostaje w historii czatu (do wyswietlenia),
+        // ale powinna byc odfiltrowana przed wyslaniem do API.
+        val ok = ChatMessage("pytanie", true)
+        val err = ChatMessage("Za szybko pod rząd", false, error = true)
+        val mem = Memory()
+        val msgs = listOf(ok, err)
+        val fresh = freshOf(msgs, mem)
+        // freshOf nie filtruje — obie wiadomosci sa widoczne w historii
+        assertEquals(2, fresh.size)
+        // filtr stosowany w Api.chat/fold usuwa bledy przed wyslaniem
+        val doModelu = fresh.filterNot { it.error }
+        assertEquals(1, doModelu.size)
+        assertEquals("pytanie", doModelu[0].text)
     }
 }

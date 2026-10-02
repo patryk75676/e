@@ -97,6 +97,7 @@ object Chats {
                     command = if (o.has("cmd")) o.optString("cmd") else null,
                     output = if (o.has("out")) o.optString("out") else null,
                     commandRan = o.optBoolean("ran"),
+                    error = o.optBoolean("err", false),
                 )
             },
             memory = Memory(root.optString("summary"), root.optInt("folded", 0)),
@@ -126,6 +127,7 @@ object Chats {
                 m.command?.let { o.put("cmd", it) }
                 m.output?.let { o.put("out", it) }
                 if (m.commandRan) o.put("ran", true)
+                if (m.error) o.put("err", true)
                 arr.put(o)
             }
             val root = JSONObject()

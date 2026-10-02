@@ -660,7 +660,7 @@ private fun Bubble(
                                 onClick = onToggleActions,
                             )
                     } else {
-                        Modifier.border(1.5.dp, Line, shape)
+                        Modifier.border(1.5.dp, if (message.error) Color(0xFFCC4444) else Line, shape)
                     }
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp),

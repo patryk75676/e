@@ -104,6 +104,11 @@ data class ChatMessage(
     val output: String? = null,
     /** Czy polecenie sie wykonalo (false = odmowa albo brak zgody na czas). */
     val commandRan: Boolean = false,
+    /**
+     * Wiadomosc o bledzie wyswietlona w czacie (np. 429 od dostawcy, brak sieci).
+     * Nie jest wysylana do modelu — filtowana przed zbudowaniem zapytania.
+     */
+    val error: Boolean = false,
 )
 data class Shop(val packages: List<Pack>, val testLeftUsd: Double)
 data class Usage(val balanceUsd: Double, val spentUsd: Double, val tokens: Long)
@@ -505,7 +510,8 @@ object Api {
                 ),
             )
         }
-        val fresh = freshOf(messages, memory)
+        // Wiadomosci o bledach nie ida do modelu — sa tylko do wyswietlenia.
+        val fresh = freshOf(messages, memory).filterNot { it.error }
         val withImages = if (images) imageMessages(fresh) else emptySet()
         val build = {
             fresh.forEachIndexed { i, m ->
@@ -630,7 +636,8 @@ object Api {
      * rozmowa dziala dalej, tyle ze drozej.
      */
     suspend fun fold(model: String, messages: List<ChatMessage>, memory: Memory, auth: String? = token): Memory {
-        val fresh = freshOf(messages, memory)
+        // Wiadomosci o bledach nie wchodza do streszczenia.
+        val fresh = freshOf(messages, memory).filterNot { it.error }
         val toFold = fresh.dropLast(KEEP_VERBATIM)
         if (toFold.isEmpty()) return memory
 

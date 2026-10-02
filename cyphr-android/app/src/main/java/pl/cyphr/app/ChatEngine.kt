@@ -561,6 +561,9 @@ object ChatEngine {
                 } else {
                     e.message ?: tr("Coś poszło nie tak. Spróbuj ponownie.", "Something went wrong. Try again.")
                 }
+                // Blad widoczny w czacie (toast znika zbyt szybko i latwo go przeoczyc).
+                // Wiadomosc bladu nie idzie do modelu — filtowana w Api.chat/fold.
+                update(uid, chatId) { it.copy(messages = sent + ChatMessage(message, false, error = true)) }
                 _events.tryEmit(Event.Message(uid, message))
                 if (!visible) {
                     Notifications.failed(app, message)
