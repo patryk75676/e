@@ -18,6 +18,18 @@ class ApiErrorTest {
     }
 
     @Test
+    fun `odpowiedz sprzed serwera pokazuje kto i co odpowiedzial`() {
+        val html = "<html><head><style>b{}</style></head><body><h1>429 Too Many Requests</h1>\n<p>Slow down</p></body></html>"
+        val d = Api.rawDetails("POST", "/v1/chat/completions?x=1", 429, "LiteSpeed", "300", html)
+        assertEquals("POST /v1/chat/completions → HTTP 429 · server: LiteSpeed · Retry-After: 300 · „429 Too Many Requests Slow down”", d)
+    }
+
+    @Test
+    fun `odpowiedz bez tresci i naglowkow`() {
+        assertEquals("GET /me → HTTP 503", Api.rawDetails("GET", "/me", 503, null, null, "  "))
+    }
+
+    @Test
     fun `krotkie oczekiwanie podane w sekundach`() {
         assertTrue(Api.explain(429, 30).contains("30 s"))
     }

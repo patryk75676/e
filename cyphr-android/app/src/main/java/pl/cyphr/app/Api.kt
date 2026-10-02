@@ -205,7 +205,7 @@ object Api {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        .addInterceptor(Pace(600))
+        .addInterceptor(Pace(1000))
         .build()
 
     private val json = "application/json; charset=utf-8".toMediaType()
@@ -288,11 +288,32 @@ object Api {
                     val fromServer = data.optString("message").ifBlank { null }?.let { Persona.scrub(it) }
                     val retryAfter = it.header("Retry-After")?.trim()?.toIntOrNull()
                     val code = data.optString("error").ifBlank { null }
-                    throw ApiError(errorMessage(code, fromServer, it.code, retryAfter), code, it.code)
+                    val message = errorMessage(code, fromServer, it.code, retryAfter)
+                    // Bez naszego JSON-a odpowiedz nie przyszla z serwera CYPHR, tylko sprzed niego
+                    // (hosting, firewall, siec). Pokazujemy, co przyszlo — inaczej nie widac, kto blokuje.
+                    val details = if (fromServer == null && code == null && it.code in 400..499) {
+                        rawDetails(method, path, it.code, it.header("Server"), it.header("Retry-After"), text)
+                    } else null
+                    throw ApiError(listOfNotNull(message, details).joinToString("\n\n"), code, it.code)
                 }
                 data
             }
         }
+    }
+
+    /** Surowa odpowiedz spoza serwera CYPHR w jednej linii: kto odpowiedzial i co napisal. */
+    internal fun rawDetails(method: String, path: String, status: Int, server: String?, retryAfter: String?, body: String): String {
+        val text = body.replace(Regex("(?s)<(script|style)\\b.*?</\\1>"), " ")
+            .replace(Regex("<[^>]*>"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .take(160)
+        return listOfNotNull(
+            "$method ${path.substringBefore('?')} → HTTP $status",
+            server?.let { "server: $it" },
+            retryAfter?.let { "Retry-After: $it" },
+            text.ifBlank { null }?.let { "„${Persona.scrub(it)}”" },
+        ).joinToString(" · ")
     }
 
     /** Cena z dwiema cyframi: po polsku z przecinkiem, po angielsku z kropka. */
