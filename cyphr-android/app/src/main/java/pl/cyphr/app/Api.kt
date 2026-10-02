@@ -7,6 +7,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -18,6 +19,30 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
 
 class ApiError(message: String, val code: String? = null, val status: Int = 0) : Exception(message)
+
+/**
+ * Hosting serwera blokuje adres IP na 5 minut (429, Retry-After: 300, zanim zapytanie dojdzie
+ * do serwera CYPHR), gdy przyjdzie z niego seria zapytan naraz. Aplikacja przy starcie pytala
+ * rownoczesnie o jezyk, konto, modele i limit obrazow — i sama zamykala sobie czat. Zapytania
+ * wychodza wiec po kolei, z odstepem.
+ */
+internal class Pace(private val gapMs: Long) : Interceptor {
+    private var next = 0L
+
+    /** Ile ms ma poczekac zapytanie wychodzace w chwili [now]; rezerwuje mu miejsce w kolejce. */
+    @Synchronized
+    fun slot(now: Long): Long {
+        val start = maxOf(now, next)
+        next = start + gapMs
+        return start - now
+    }
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val wait = slot(System.nanoTime() / 1_000_000)
+        if (wait > 0) Thread.sleep(wait)
+        return chain.proceed(chain.request())
+    }
+}
 
 /**
  * Zapytanie, ktore da sie przerwac. Przy execute() przerwana praca (wylogowanie, usuniecie
@@ -180,6 +205,7 @@ object Api {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .addInterceptor(Pace(600))
         .build()
 
     private val json = "application/json; charset=utf-8".toMediaType()
