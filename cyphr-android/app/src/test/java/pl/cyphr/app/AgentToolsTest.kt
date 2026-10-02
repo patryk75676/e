@@ -78,7 +78,7 @@ class AgentToolsTest {
 
     @Test
     fun `limit rund jest dodatni i skonczony`() {
-        assertTrue(AgentTools.MAX_ROUNDS in 1..10)
+        assertTrue(AgentTools.MAX_ROUNDS in 1..100)
     }
 
     @Test

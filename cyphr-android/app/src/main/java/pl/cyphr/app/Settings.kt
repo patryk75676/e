@@ -370,10 +370,12 @@ fun SettingsScreen(agentName: String?, onTerminal: () -> Unit, onLogout: () -> U
             Spacer(Modifier.height(6.dp))
             Lead(
                 tr(
-                    "Zapis pliku, polecenia groźne (rm, mv, chmod, dd, przekierowania) oraz wysłanie " +
-                        "treści strony do modelu pytają zawsze. Nie ma trybu, który to wyłącza.",
-                    "Saving a file, dangerous commands (rm, mv, chmod, dd, redirections) and sending " +
-                        "a page's content to the model always ask. There's no mode that turns this off.",
+                    "Gdy wyłączone, zwykłe polecenia agent wykonuje bez pytania i pracuje ciągiem. " +
+                        "Zapis pliku, polecenia groźne (rm, mv, chmod, dd, przekierowania) oraz wysłanie " +
+                        "treści strony do modelu pytają zawsze — tego nie wyłącza żadne ustawienie.",
+                    "When off, the agent runs routine commands without asking and works continuously. " +
+                        "Saving a file, dangerous commands (rm, mv, chmod, dd, redirections) and sending " +
+                        "a page's content to the model always ask — no setting turns that off.",
                 ),
             )
             Spacer(Modifier.height(16.dp))

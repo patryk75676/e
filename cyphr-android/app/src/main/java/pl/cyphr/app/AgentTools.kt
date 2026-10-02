@@ -28,8 +28,20 @@ object AgentTools {
     /** Trzy i wiecej pustych linii po wycieciu — skracamy do jednej przerwy. */
     private val GAP = Regex("""\n{3,}""")
 
-    /** Ile razy pod rzad model moze poprosic o polecenie, zanim przerwiemy. */
-    const val MAX_ROUNDS = 5
+    /**
+     * Ile razy pod rzad model moze poprosic o polecenie, zanim przerwiemy. Twardy limit
+     * jest po to, zeby model nie zapetlil sie na saldzie — po nim pisze sie „kontynuuj”.
+     */
+    const val MAX_ROUNDS = 25
+
+    /**
+     * Czy przed [command] trzeba zapytac uzytkownika. Grozne polecenia (kasujace,
+     * nadpisujace, wysylajace — patrz [CommandRisk]) pytaja zawsze, niezaleznie od ustawien.
+     * Zwykle pytaja tylko, gdy wlaczone jest „Pytaj przed kazdym poleceniem” ([askRoutine]).
+     * Dzieki temu agent moze pracowac ciagiem, a i tak nie skasuje nic bez potwierdzenia.
+     */
+    fun mustConfirm(command: String, askRoutine: Boolean): Boolean =
+        CommandRisk.isRisky(command) || askRoutine
 
     /** Dopisek do instrukcji systemowej, wlaczany tylko gdy uzytkownik na to pozwolil. */
     fun instructions(where: String): String = if (isEn) {

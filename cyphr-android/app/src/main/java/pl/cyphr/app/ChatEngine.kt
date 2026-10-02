@@ -462,7 +462,14 @@ object ChatEngine {
                     history = history + ChatMessage(spoken, false, command = cmd)
                     val asked = history
                     update(uid, chatId) { it.copy(messages = asked) }
-                    val allowed = ask(chatId, label, name, cmd)
+                    // Zgoda jak w recznym terminalu: grozne polecenia pytaja zawsze, zwykle
+                    // tylko gdy wlaczone „Pytaj przed kazdym poleceniem”. Przy wylaczonym
+                    // pytaniu agent idzie ciagiem, ale kasowanie i nadpisywanie wciaz potwierdza.
+                    val allowed = if (AgentTools.mustConfirm(cmd, Prefs.askCommands)) {
+                        ask(chatId, label, name, cmd)
+                    } else {
+                        true
+                    }
                     val result = when (allowed) {
                         true -> AgentTools.execute(app, cmd)
                         false -> tr("Użytkownik odmówił wykonania tego polecenia.", "The user refused to run this command.")
