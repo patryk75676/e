@@ -584,7 +584,7 @@ object Api {
         }
         // Zdjecia czytamy z dysku poza watkiem ekranu; sam tekst jest juz w pamieci.
         if (withImages.isEmpty()) build() else withContext(Dispatchers.IO) { build() }
-        val body = JSONObject().put("model", model).put("messages", arr).put("max_tokens", 2048).put("temperature", 0.7)
+        val body = JSONObject().put("model", model).put("messages", arr).put("max_tokens", 8192).put("temperature", 0.7)
         val r = call("/v1/chat/completions", "POST", body, auth)
         val choice = r.optJSONArray("choices")?.optJSONObject(0)
         val message = choice?.optJSONObject("message")
