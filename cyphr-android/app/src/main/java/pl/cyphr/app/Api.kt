@@ -565,7 +565,7 @@ object Api {
                 if (m.command != null) {
                     // Konsola to jeden dymek na ekranie, ale model widzi to jak dotad: swoja ture
                     // z poleceniem, a wynik jako osobna ture uzytkownika.
-                    val call = listOf(m.text, "$ ${m.command}").filter { it.isNotBlank() }.joinToString("\n\n")
+                    val call = listOf(m.text, "!RUN: ${m.command}").filter { it.isNotBlank() }.joinToString("\n\n")
                     arr.put(JSONObject().put("role", "assistant").put("content", call))
                     m.output?.let { out ->
                         arr.put(
