@@ -77,6 +77,14 @@ class AgentToolsTest {
     }
 
     @Test
+    fun `sam znacznik bez polecenia znika z dymku`() {
+        val reply = "Spróbuję:\n!RUN:\nOto wynik."
+        val shown = AgentTools.withoutCall(reply)
+        assertTrue(!shown.contains("!RUN"))
+        assertEquals("Spróbuję:\nOto wynik.", shown)
+    }
+
+    @Test
     fun `limit rund jest dodatni i skonczony`() {
         assertTrue(AgentTools.MAX_ROUNDS in 1..100)
     }

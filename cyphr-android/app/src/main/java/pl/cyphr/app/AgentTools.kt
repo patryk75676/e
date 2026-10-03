@@ -19,7 +19,7 @@ object AgentTools {
      * i punktor listy, bo modele lubia formatowac odpowiedz.
      */
     private val CALL =
-        Regex("""^[ \t]*(?:[-*>]\s*)?!RUN:[ \t]*(.+)(?:\r?\n)?""", RegexOption.MULTILINE)
+        Regex("""^[ \t]*(?:[-*>]\s*)?!RUN:[ \t]*(.*)(?:\r?\n)?""", RegexOption.MULTILINE)
 
     /** Pusty blok kodu, ktory zostaje po wycieciu polecenia zamknietego w ```. */
     private val EMPTY_FENCE =
@@ -50,10 +50,14 @@ object AgentTools {
 You have access to a terminal: $where
 When you need to check or do something, write on a separate line exactly:
 !RUN: <command>
-One command at a time, with no extra formatting and no code fences.
-Every command you want to run MUST be on its own line starting with !RUN: — never write it
-as plain text, inside a code fence, or with a shell prompt in front. Without the !RUN: marker
-nothing runs: the command just sits as dead text in the chat and the user has to retype it.
+Rules:
+- One command at a time, no code fences, no shell prompt ($).
+- The ENTIRE command must be on the SAME line as !RUN: — never split it with a newline.
+  Good: !RUN: curl -s "https://example.com/path?q=1"
+  Bad:  !RUN:
+        curl -s "https://example.com/path?q=1"
+- Long commands go on one line, however long they are. No line breaks inside the command.
+- Without the !RUN: marker nothing runs: the command just sits as dead text.
 You'll get the output in the next message — then continue.
 Don't guess results — if you don't know something, check it with a command.
 The user already sees the command and its full output in a console in the chat, so
@@ -62,7 +66,7 @@ say only what matters: the conclusion or the next step (e.g. "installed", "found
 critical issue", "port 22 is open"). Keep it short.
 A command gets ${COMMAND_TIMEOUT_SECONDS} s and receives no input — don't run
 interactive programs or ones that never end (ping without -c, top, editors).
-The user confirms every command and may refuse.
+Routine commands run automatically. Dangerous ones (rm, overwrite, curl|sh) need confirmation.
         """.trimIndent()
     } else {
         """
@@ -70,10 +74,14 @@ The user confirms every command and may refuse.
 Masz dostęp do terminala: $where
 Gdy potrzebujesz czegoś sprawdzić lub wykonać, napisz w osobnej linii dokładnie:
 !RUN: <polecenie>
-Jedno polecenie naraz, bez dodatkowego formatowania i bez znaczników kodu.
-Każde polecenie, które ma się wykonać, MUSI stać w osobnej linii zaczynającej się od !RUN: —
-nigdy nie pisz go jako zwykły tekst, w bloku kodu ani z zachętą powłoki z przodu. Bez znacznika
-!RUN: nic się nie uruchomi: polecenie zostanie martwym tekstem w czacie i trzeba je wpisać od nowa.
+Zasady:
+- Jedno polecenie naraz, bez znaczników kodu, bez zachęty powłoki ($).
+- CAŁE polecenie musi być w TEJ SAMEJ linii co !RUN: — nigdy nie dziel go na dwie linie.
+  Dobrze: !RUN: curl -s “https://example.com/sciezka?q=1”
+  Źle:    !RUN:
+          curl -s “https://example.com/sciezka?q=1”
+- Długie polecenia piszesz w jednej linii, bez względu na długość. Zero łamania wewnątrz polecenia.
+- Bez znacznika !RUN: nic się nie wykona: polecenie zostanie martwym tekstem.
 Wynik dostaniesz w następnej wiadomości i wtedy kontynuuj.
 Nie zgaduj wyników — jeśli czegoś nie wiesz, sprawdź poleceniem.
 Użytkownik widzi polecenie i cały jego wynik w konsoli w czacie, więc NIE wklejaj
@@ -82,7 +90,7 @@ napisz tylko to, co istotne: wniosek albo następny krok (np. „zainstalowane�
 „znaleziono krytyczny problem”, „port 22 otwarty”). Krótko.
 Polecenie ma ${COMMAND_TIMEOUT_SECONDS} s i nie dostaje nic na wejściu — nie uruchamiaj
 programów interaktywnych ani działających bez końca (ping bez -c, top, edytory).
-Użytkownik potwierdza każde polecenie i może odmówić.
+Zwykłe polecenia wykonują się automatycznie. Groźne (rm, nadpisanie, curl|sh) wymagają potwierdzenia.
         """.trimIndent()
     }
 
