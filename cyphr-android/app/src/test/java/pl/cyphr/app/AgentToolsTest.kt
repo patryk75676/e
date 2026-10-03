@@ -85,6 +85,25 @@ class AgentToolsTest {
     }
 
     @Test
+    fun `urwany znacznik bez dwukropka znika z dymku`() {
+        assertEquals("", AgentTools.withoutCall("!RUN"))
+    }
+
+    @Test
+    fun `sam backtick po wycieciu polecenia znika`() {
+        assertEquals("", AgentTools.withoutCall("`\n!RUN: ls -la"))
+    }
+
+    @Test
+    fun `isCommandOnly rozpoznaje rozne formy samego polecenia`() {
+        assertTrue(AgentTools.isCommandOnly("!RUN: ls -la"))
+        assertTrue(AgentTools.isCommandOnly("!RUN"))
+        assertTrue(AgentTools.isCommandOnly("`\n!RUN: ls"))
+        assertTrue(!AgentTools.isCommandOnly("Sprawdzę katalog.\n!RUN: ls"))
+        assertTrue(!AgentTools.isCommandOnly("Zwykly tekst"))
+    }
+
+    @Test
     fun `limit rund jest dodatni i skonczony`() {
         assertTrue(AgentTools.MAX_ROUNDS in 1..100)
     }

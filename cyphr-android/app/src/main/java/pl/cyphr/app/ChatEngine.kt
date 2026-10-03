@@ -489,7 +489,10 @@ object ChatEngine {
 
                 val drawing = if (quota != null) ImageTools.requested(reply.text) else null
                 var shown = AgentTools.withoutCall(reply.text).let { if (drawing != null) ImageTools.withoutCall(it) else it }
-                if (drawing == null) shown = shown.ifBlank { reply.text }
+                if (drawing == null) shown = shown.ifBlank {
+                    // Nie cofamy sie do surowego tekstu, jesli byla to tylko komenda lub urwany znacznik
+                    if (AgentTools.isCommandOnly(reply.text)) "" else reply.text
+                }
                 // Limit wyczerpany, a model wciaz prosi o kolejne polecenie.
                 if (Prefs.agentTerminal && round >= AgentTools.MAX_ROUNDS &&
                     AgentTools.requestedCommand(reply.text) != null
@@ -508,7 +511,7 @@ object ChatEngine {
                 // Cala historia z tej odpowiedzi, a nie dopisek do biezacej postaci: nawet gdy
                 // ktoras zmiana po drodze przepadla, rozmowa konczy sie kompletna.
                 var final = history + ChatMessage(shown, false)
-                if (drawing == null || shown.isNotBlank()) {
+                if (shown.isNotBlank()) {
                     val done = final
                     update(uid, chatId) { it.copy(messages = done) }
                 }

@@ -21,12 +21,19 @@ object AgentTools {
     private val CALL =
         Regex("""^[ \t]*(?:[-*>]\s*)?!RUN:[ \t]*(.*)(?:\r?\n)?""", RegexOption.MULTILINE)
 
+    /** Model urwal odpowiedz przed dwukropkiem — !RUN bez komendy, wycinamy z dymku. */
+    private val BARE_RUN =
+        Regex("""^[ \t]*(?:[-*>]\s*)?!RUN[ \t]*(?!:[ \t]*\S)(?:\r?\n)?""", RegexOption.MULTILINE)
+
     /** Pusty blok kodu, ktory zostaje po wycieciu polecenia zamknietego w ```. */
     private val EMPTY_FENCE =
         Regex("""```[a-zA-Z]*[ \t]*(?:\r?\n)?[ \t]*```[ \t]*(?:\r?\n)?""")
 
     /** Trzy i wiecej pustych linii po wycieciu — skracamy do jednej przerwy. */
     private val GAP = Regex("""\n{3,}""")
+
+    /** Zostal sam backtick lub biale znaki po wycieciu polecenia — nie ma czego pokazac. */
+    private val ONLY_PUNCT = Regex("""^[`\s]+$""")
 
     /**
      * Ile razy pod rzad model moze poprosic o polecenie, zanim przerwiemy. Twardy limit
@@ -122,8 +129,16 @@ Zwykłe polecenia wykonują się automatycznie. Groźne (rm, nadpisanie, curl|sh
         CALL.find(reply)?.groupValues?.get(1)?.trim()?.trim('`')?.trim()?.ifBlank { null }
 
     /** Odpowiedz bez linii z poleceniem — to pokazujemy w dymku rozmowy. */
-    fun withoutCall(reply: String): String =
-        GAP.replace(EMPTY_FENCE.replace(CALL.replace(reply, ""), ""), "\n\n").trim()
+    fun withoutCall(reply: String): String {
+        val stripped = GAP.replace(
+            EMPTY_FENCE.replace(BARE_RUN.replace(CALL.replace(reply, ""), ""), ""),
+            "\n\n",
+        ).trim()
+        return if (ONLY_PUNCT.matches(stripped)) "" else stripped
+    }
+
+    /** Czy cala odpowiedz to tylko polecenie lub urwany znacznik — brak tekstu do pokazania. */
+    fun isCommandOnly(reply: String): Boolean = withoutCall(reply).isBlank()
 
     /** Tyle najdluzej czeka polecenie zlecone przez model, zanim je przerwiemy. */
     const val COMMAND_TIMEOUT_SECONDS = 30L
