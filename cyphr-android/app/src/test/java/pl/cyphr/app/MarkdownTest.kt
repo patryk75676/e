@@ -82,6 +82,20 @@ class MarkdownTest {
     }
 
     @Test
+    fun `niespasowany backtick nie pojawia sie w dymku`() {
+        // Model czasem pisze `https://... bez zamkniecia — backtick nie moze wyciec.
+        val text = "Link: `https://example.com/path i koniec"
+        val result = spans(text).joinToString("") { it.text }
+        assertEquals("Link: https://example.com/path i koniec", result)
+    }
+
+    @Test
+    fun `pusty backtick para znika`() {
+        val result = spans("przed `` po").joinToString("") { it.text }
+        assertEquals("przed  po", result)
+    }
+
+    @Test
     fun `dlugosc widoczna nie liczy znacznikow`() {
         // Pisanie odpowiedzi odslania tyle znakow, ile widac po sformatowaniu.
         assertEquals(4, Markdown.visibleLength(Markdown.blocks("**ab** c")))

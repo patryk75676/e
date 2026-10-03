@@ -11,8 +11,8 @@ android {
         applicationId = "pl.cyphr.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "1.19"
+        versionCode = 21
+        versionName = "1.20"
 
         buildConfigField("String", "BASE_URL", "\"${project.findProperty("cyphr.baseUrl")}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${project.findProperty("cyphr.googleWebClientId")}\"")

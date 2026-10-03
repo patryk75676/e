@@ -99,7 +99,11 @@ object Markdown {
             when {
                 c == '`' -> {
                     val end = text.indexOf('`', i + 1)
-                    if (end > i + 1) { flush(); spans += Span(text.substring(i + 1, end), Style.Code); i = end + 1; continue }
+                    when {
+                        end > i + 1 -> { flush(); spans += Span(text.substring(i + 1, end), Style.Code); i = end + 1; continue }
+                        end == i + 1 -> { i += 2; continue } // pusty `` — pomijamy obydwa
+                        else -> { i++; continue }            // niespasowany ` — pomijamy cicho
+                    }
                 }
                 text.startsWith("**", i) || text.startsWith("__", i) -> {
                     val mark = text.substring(i, i + 2)
