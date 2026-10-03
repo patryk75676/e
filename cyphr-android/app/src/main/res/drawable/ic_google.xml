@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Oficjalne logo Google zgodnie z wytycznymi branding.google.com -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+  <!-- Niebieska czesc -->
+  <path
+      android:fillColor="#4285F4"
+      android:pathData="M47.52,24.56c0,-1.64 -0.15,-3.22 -0.42,-4.74H24v8.97h13.22c-0.57,3.07 -2.3,5.67 -4.91,7.41v6.16h7.95c4.65,-4.28 7.33,-10.59 7.33,-17.8z"/>
+  <!-- Zielona czesc -->
+  <path
+      android:fillColor="#34A853"
+      android:pathData="M24,48c6.64,0 12.21,-2.2 16.28,-5.96l-7.95,-6.16c-2.2,1.48 -5.01,2.35 -8.33,2.35c-6.4,0 -11.82,-4.32 -13.75,-10.13H2.03v6.36C6.09,42.52 14.42,48 24,48z"/>
+  <!-- Zolta czesc -->
+  <path
+      android:fillColor="#FBBC05"
+      android:pathData="M10.25,28.1A14.34,14.34 0,0 1,9.82 24c0,-1.42 0.24,-2.8 0.43,-4.1V13.54H2.03A23.99,23.99 0,0 0,0 24c0,3.87 0.93,7.53 2.03,10.46z"/>
+  <!-- Czerwona czesc -->
+  <path
+      android:fillColor="#EA4335"
+      android:pathData="M24,9.77c3.61,0 6.85,1.24 9.4,3.67l7.05,-7.05C36.2,2.42 30.64,0 24,0 14.42,0 6.09,5.48 2.03,13.54l8.22,6.36C12.18,14.09 17.6,9.77 24,9.77z"/>
+</vector>
