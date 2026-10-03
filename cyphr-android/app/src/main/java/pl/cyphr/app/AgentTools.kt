@@ -51,6 +51,9 @@ You have access to a terminal: $where
 When you need to check or do something, write on a separate line exactly:
 !RUN: <command>
 One command at a time, with no extra formatting and no code fences.
+Every command you want to run MUST be on its own line starting with !RUN: — never write it
+as plain text, inside a code fence, or with a shell prompt in front. Without the !RUN: marker
+nothing runs: the command just sits as dead text in the chat and the user has to retype it.
 You'll get the output in the next message — then continue.
 Don't guess results — if you don't know something, check it with a command.
 The user already sees the command and its full output in a console in the chat, so
@@ -68,6 +71,9 @@ Masz dostęp do terminala: $where
 Gdy potrzebujesz czegoś sprawdzić lub wykonać, napisz w osobnej linii dokładnie:
 !RUN: <polecenie>
 Jedno polecenie naraz, bez dodatkowego formatowania i bez znaczników kodu.
+Każde polecenie, które ma się wykonać, MUSI stać w osobnej linii zaczynającej się od !RUN: —
+nigdy nie pisz go jako zwykły tekst, w bloku kodu ani z zachętą powłoki z przodu. Bez znacznika
+!RUN: nic się nie uruchomi: polecenie zostanie martwym tekstem w czacie i trzeba je wpisać od nowa.
 Wynik dostaniesz w następnej wiadomości i wtedy kontynuuj.
 Nie zgaduj wyników — jeśli czegoś nie wiesz, sprawdź poleceniem.
 Użytkownik widzi polecenie i cały jego wynik w konsoli w czacie, więc NIE wklejaj
