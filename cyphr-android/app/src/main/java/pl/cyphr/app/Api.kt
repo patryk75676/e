@@ -735,7 +735,7 @@ object Api {
         val arr = org.json.JSONArray()
         arr.put(JSONObject().put("role", "user").put("content", instruction))
         val body = JSONObject().put("model", model).put("messages", arr)
-            .put("max_tokens", 400).put("temperature", 0.2)
+            .put("max_tokens", 2000).put("temperature", 0.2)
 
         return try {
             val r = call("/v1/chat/completions", "POST", body, auth)
