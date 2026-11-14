@@ -16,22 +16,30 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         DataContext = new ShellViewModel(App.Host);
 
         var settings = App.Host.Settings;
-        if ((settings.StartMinimized || App.StartMinimizedFlag) && settings.MinimizeToTray)
-        {
-            Loaded += (_, _) => Hide();
-        }
+        var startHidden = (settings.StartMinimized || App.StartMinimizedFlag) && settings.MinimizeToTray;
 
-        Nav.Navigate(typeof(SearchPage));
+        // Defer NavigationView.Navigate: WPF-UI 3.0.5 throws NRE when Navigate is
+        // called before the control template is applied.
+        Loaded += (_, _) =>
+        {
+            try { Nav.Navigate(typeof(SearchPage)); } catch { }
+            if (startHidden) Hide();
+        };
 
         // Global shortcuts
-        InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(SearchPage))),
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => SafeNavigate(typeof(SearchPage))),
             new KeyGesture(Key.F, ModifierKeys.Control)));
-        InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(DownloadsPage))),
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => SafeNavigate(typeof(DownloadsPage))),
             new KeyGesture(Key.D, ModifierKeys.Control)));
-        InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(LibraryPage))),
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => SafeNavigate(typeof(LibraryPage))),
             new KeyGesture(Key.L, ModifierKeys.Control)));
-        InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(SettingsPage))),
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => SafeNavigate(typeof(SettingsPage))),
             new KeyGesture(Key.OemComma, ModifierKeys.Control)));
+    }
+
+    private void SafeNavigate(Type pageType)
+    {
+        try { Nav.Navigate(pageType); } catch { }
     }
 
     private void Window_StateChanged(object? sender, EventArgs e)
