@@ -5,6 +5,8 @@ using System.Windows;
 using MonoTorrent;
 using MonoTorrent.Client;
 using GameGrab.Models;
+using GgState = GameGrab.Models.TorrentState;
+using MtState = MonoTorrent.Client.TorrentState;
 
 namespace GameGrab.Services;
 
@@ -45,12 +47,6 @@ public sealed class TorrentEngine : IAsyncDisposable
             MaximumUploadRate = settings.MaxUploadKBps * 1024,
             MaximumDownloadRate = settings.MaxDownloadKBps * 1024,
             AllowLocalPeerDiscovery = settings.EnableLsd,
-            AllowedEncryption = settings.Encryption switch
-            {
-                "Forced" => new List<EncryptionType> { EncryptionType.RC4Full },
-                "Disabled" => new List<EncryptionType> { EncryptionType.PlainText },
-                _ => new List<EncryptionType> { EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText }
-            },
         };
 
         _engine = new ClientEngine(esBuilder.ToSettings());
@@ -116,7 +112,7 @@ public sealed class TorrentEngine : IAsyncDisposable
         var item = new TorrentItem
         {
             Name = name,
-            State = TorrentState.Metadata,
+            State = GgState.Metadata,
             SavePath = tm.SavePath,
             Hash = tm.InfoHashes?.V1OrV2?.ToHex(),
             Source = source,
@@ -129,7 +125,7 @@ public sealed class TorrentEngine : IAsyncDisposable
     public async Task PauseAsync(TorrentItem item)
     {
         var tm = Find(item);
-        if (tm is not null) { await tm.PauseAsync(); item.State = TorrentState.Paused; }
+        if (tm is not null) { await tm.PauseAsync(); item.State = GgState.Paused; }
     }
 
     public async Task ResumeAsync(TorrentItem item)
@@ -182,14 +178,14 @@ public sealed class TorrentEngine : IAsyncDisposable
                     var prevState = item.State;
                     item.State = tm.State switch
                     {
-                        MonoTorrent.Client.TorrentState.Downloading => TorrentState.Downloading,
-                        MonoTorrent.Client.TorrentState.Seeding => TorrentState.Seeding,
-                        MonoTorrent.Client.TorrentState.Paused => TorrentState.Paused,
-                        MonoTorrent.Client.TorrentState.Metadata => TorrentState.Metadata,
-                        MonoTorrent.Client.TorrentState.Hashing => TorrentState.Metadata,
-                        MonoTorrent.Client.TorrentState.Error => TorrentState.Error,
-                        MonoTorrent.Client.TorrentState.Stopped when tm.Complete => TorrentState.Finished,
-                        MonoTorrent.Client.TorrentState.Stopped => TorrentState.Queued,
+                        MtState.Downloading => GgState.Downloading,
+                        MtState.Seeding => GgState.Seeding,
+                        MtState.Paused => GgState.Paused,
+                        MtState.Metadata => GgState.Metadata,
+                        MtState.Hashing => GgState.Metadata,
+                        MtState.Error => GgState.Error,
+                        MtState.Stopped when tm.Complete => GgState.Finished,
+                        MtState.Stopped => GgState.Queued,
                         _ => item.State,
                     };
                     item.Progress = tm.Progress;
@@ -203,8 +199,8 @@ public sealed class TorrentEngine : IAsyncDisposable
                     totalDown += m.DownloadRate;
                     totalUp += m.UploadRate;
 
-                    if (prevState != TorrentState.Finished &&
-                        item.State == TorrentState.Finished)
+                    if (prevState != GgState.Finished &&
+                        item.State == GgState.Finished)
                         TorrentCompleted?.Invoke(item);
                 }
                 catch { }
