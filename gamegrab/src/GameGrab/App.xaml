@@ -16,6 +16,7 @@
             <views:RateConverter        x:Key="RateConv"    />
             <views:StateToColorConverter x:Key="StateColor" />
             <views:BoolToVisConverter   x:Key="BoolToVis"   />
+            <views:BoolToSeverityConverter x:Key="BoolToSeverity" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

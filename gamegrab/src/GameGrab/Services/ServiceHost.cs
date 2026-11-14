@@ -11,6 +11,8 @@ public interface IServiceHost
     TorrentEngine Torrents { get; }
     HttpDownloader Downloader { get; }
     HttpClient Http { get; }
+    SteamStoreApi SteamApi { get; }
+    SteamUnlocker SteamLib { get; }
     void Start();
     Task StopAsync();
 }
@@ -23,10 +25,13 @@ public sealed class ServiceHost : IServiceHost
     public SearchAggregator Search { get; }
     public TorrentEngine Torrents { get; }
     public HttpDownloader Downloader { get; }
+    public SteamStoreApi SteamApi { get; }
+    public SteamUnlocker SteamLib { get; } = new(UnlockedLibrary.Load());
 
     public ServiceHost()
     {
         Http = HttpFactory.Create(Settings);
+        SteamApi = new SteamStoreApi(Http);
         var sources = new ISource[]
         {
             new X1337Source(),

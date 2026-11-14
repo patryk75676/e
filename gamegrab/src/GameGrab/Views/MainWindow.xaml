@@ -46,6 +46,7 @@
             <ui:NavigationView.MenuItems>
                 <ui:NavigationViewItem Content="Search"    Icon="{ui:SymbolIcon Symbol=Search24}"       TargetPageType="{x:Type views:SearchPage}" />
                 <ui:NavigationViewItem Content="Downloads" Icon="{ui:SymbolIcon Symbol=ArrowDownload24}" TargetPageType="{x:Type views:DownloadsPage}" />
+                <ui:NavigationViewItem Content="Library+"  Icon="{ui:SymbolIcon Symbol=Library24}"      TargetPageType="{x:Type views:LibraryPage}" />
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
                 <ui:NavigationViewItem Content="Settings"  Icon="{ui:SymbolIcon Symbol=Settings24}"     TargetPageType="{x:Type views:SettingsPage}" />

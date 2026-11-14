@@ -28,6 +28,8 @@ public partial class MainWindow : FluentWindow
             new KeyGesture(Key.F, ModifierKeys.Control)));
         InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(DownloadsPage))),
             new KeyGesture(Key.D, ModifierKeys.Control)));
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(LibraryPage))),
+            new KeyGesture(Key.L, ModifierKeys.Control)));
         InputBindings.Add(new KeyBinding(new RelayCommand(() => Nav.Navigate(typeof(SettingsPage))),
             new KeyGesture(Key.OemComma, ModifierKeys.Control)));
     }

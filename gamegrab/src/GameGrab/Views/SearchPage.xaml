@@ -11,38 +11,56 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,10"
-                   Text="Find a release" />
+        <StackPanel Grid.Row="0" Orientation="Horizontal">
+            <TextBlock FontSize="28" FontWeight="SemiBold" Text="Find a release" />
+            <TextBlock FontSize="14" VerticalAlignment="Bottom" Margin="12,0,0,8"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                       Text="ten sources, parallel, ranked by seeds" />
+        </StackPanel>
 
-        <Grid Grid.Row="1" Margin="0,0,0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <ui:TextBox Grid.Column="0"
-                        x:Name="SearchBox"
-                        PlaceholderText="type a game, or paste a magnet / .torrent url and press Enter"
-                        Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
-                        KeyDown="SearchBox_KeyDown" />
-            <ui:Button Grid.Column="1" Appearance="Primary" Margin="8,0,0,0"
-                       Icon="{ui:SymbolIcon Symbol=Search24}" Content="Search" Command="{Binding SearchCommand}" />
-            <ui:Button Grid.Column="2" Margin="8,0,0,0"
-                       Icon="{ui:SymbolIcon Symbol=ClipboardPaste24}" Content="Paste" Command="{Binding PasteMagnetCommand}" />
-            <ui:Button Grid.Column="3" Margin="8,0,0,0"
-                       Icon="{ui:SymbolIcon Symbol=DocumentAdd24}" Content=".torrent" Command="{Binding AddTorrentFileCommand}" />
-            <ProgressBar Grid.Column="4" Width="90" Margin="8,0,0,0"
-                         IsIndeterminate="{Binding Searching}"
-                         Visibility="{Binding Searching, Converter={StaticResource BoolToVis}}" />
-        </Grid>
+        <Border Grid.Row="1" Margin="0,16,0,10" Padding="14,10,10,10"
+                CornerRadius="12"
+                Background="{DynamicResource ControlFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource AccentFillColorDefaultBrush}"
+                BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ui:SymbolIcon Symbol="Search24" FontSize="22"
+                               Foreground="{DynamicResource AccentFillColorDefaultBrush}"
+                               VerticalAlignment="Center" Margin="0,0,10,0" />
+                <TextBox Grid.Column="1"
+                         x:Name="SearchBox"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         FontSize="18"
+                         VerticalContentAlignment="Center"
+                         Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                         KeyDown="SearchBox_KeyDown" />
+                <ui:Button Grid.Column="2" Appearance="Primary" Margin="8,0,0,0"
+                           Content="Search" Command="{Binding SearchCommand}" />
+                <ui:Button Grid.Column="3" Margin="8,0,0,0"
+                           Icon="{ui:SymbolIcon Symbol=ClipboardPaste24}" Content="Paste" Command="{Binding PasteMagnetCommand}" />
+                <ui:Button Grid.Column="4" Margin="8,0,0,0"
+                           Icon="{ui:SymbolIcon Symbol=DocumentAdd24}" Content=".torrent" Command="{Binding AddTorrentFileCommand}" />
+                <ProgressBar Grid.Column="5" Width="90" Margin="8,0,0,0"
+                             IsIndeterminate="{Binding Searching}"
+                             Visibility="{Binding Searching, Converter={StaticResource BoolToVis}}" />
+            </Grid>
+        </Border>
 
-        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+        <WrapPanel Grid.Row="2" Margin="0,0,0,6">
             <ItemsControl ItemsSource="{Binding Sources}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -51,17 +69,22 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <ui:ToggleSwitch Content="{Binding Name}" IsChecked="{Binding Enabled}" Margin="0,0,14,6" />
+                        <Border Margin="0,0,6,6" CornerRadius="14" Padding="2">
+                            <ui:ToggleSwitch Content="{Binding Name}" IsChecked="{Binding Enabled}" />
+                        </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <CheckBox Content="only with seeds" IsChecked="{Binding OnlyWithSeeds}" Margin="12,6,14,6" />
-            <ui:TextBox PlaceholderText="filter title" Width="200"
-                        Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged, Delay=200}"
-                        Margin="0,0,0,6" />
         </WrapPanel>
 
-        <ui:DataGrid Grid.Row="3"
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
+            <CheckBox Content="only with seeds" IsChecked="{Binding OnlyWithSeeds}" VerticalAlignment="Center" Margin="0,0,16,0" />
+            <TextBlock Text="filter" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ui:TextBox PlaceholderText="narrow title" Width="220"
+                        Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged, Delay=200}" />
+        </StackPanel>
+
+        <ui:DataGrid Grid.Row="4"
                      x:Name="ResultsGrid"
                      ItemsSource="{Binding Results}"
                      SelectedItem="{Binding Selected}"
@@ -69,6 +92,8 @@
                      IsReadOnly="True"
                      CanUserSortColumns="True"
                      SelectionMode="Single"
+                     RowHeight="36"
+                     FontSize="13"
                      MouseDoubleClick="ResultsGrid_DoubleClick">
             <ui:DataGrid.ContextMenu>
                 <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
@@ -87,7 +112,7 @@
             </ui:DataGrid.Columns>
         </ui:DataGrid>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0">
+        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,10,0,0">
             <ui:Button Appearance="Primary"
                        Icon="{ui:SymbolIcon Symbol=ArrowDownload24}"
                        Content="Download selected"
