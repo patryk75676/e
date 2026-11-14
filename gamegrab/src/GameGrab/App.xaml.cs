@@ -15,6 +15,7 @@ public partial class App : Application
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         Host = new ServiceHost();
         Host.Start();
+        try { GameGrab.ViewModels.ThemeApplier.Apply(Host.Settings.Theme); } catch { }
         DispatcherUnhandledException += OnUiException;
     }
 

@@ -1,0 +1,130 @@
+<ui:Page
+    x:Class="GameGrab.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Background="Transparent">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="20,12,20,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,10"
+                       Text="Settings" />
+
+            <ui:Card Grid.Row="1" Margin="0,0,0,12" Padding="16">
+                <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="Download folder" Margin="0,0,0,6" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ui:TextBox Text="{Binding S.DownloadDir, UpdateSourceTrigger=PropertyChanged}" />
+                        <ui:Button Grid.Column="1" Margin="8,0,0,0"
+                                   Icon="{ui:SymbolIcon Symbol=FolderOpen24}" Content="Browse"
+                                   Command="{Binding BrowseDownloadsCommand}" />
+                        <ui:Button Grid.Column="2" Margin="8,0,0,0"
+                                   Content="Open config"
+                                   Command="{Binding OpenConfigFolderCommand}" />
+                    </Grid>
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Grid.Row="2" Margin="0,0,0,12" Padding="16">
+                <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="Appearance" Margin="0,0,0,6" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Theme" Width="160" VerticalAlignment="Center" />
+                        <ComboBox Width="160" ItemsSource="{Binding Themes}"
+                                  SelectedItem="{Binding S.Theme}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <ui:ToggleSwitch Content="Minimize to tray" IsChecked="{Binding S.MinimizeToTray}" Margin="0,0,24,0" />
+                        <ui:ToggleSwitch Content="Start minimized"  IsChecked="{Binding S.StartMinimized}" Margin="0,0,24,0" />
+                        <ui:ToggleSwitch Content="Toast on finish"  IsChecked="{Binding S.ToastOnComplete}" />
+                    </StackPanel>
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Grid.Row="3" Margin="0,0,0,12" Padding="16">
+                <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="BitTorrent" Margin="0,0,0,6" />
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Listen port" VerticalAlignment="Center" />
+                        <ui:TextBox Grid.Row="0" Grid.Column="1" Text="{Binding S.ListenPort}" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Max connections" VerticalAlignment="Center" Margin="0,8,0,0" />
+                        <ui:TextBox Grid.Row="1" Grid.Column="1" Text="{Binding S.MaxConnections}" Margin="0,8,0,0" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Max download (KB/s, 0=∞)" VerticalAlignment="Center" Margin="0,8,0,0" />
+                        <ui:TextBox Grid.Row="2" Grid.Column="1" Text="{Binding S.MaxDownloadKBps}" Margin="0,8,0,0" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Max upload (KB/s, 0=∞)" VerticalAlignment="Center" Margin="0,8,0,0" />
+                        <ui:TextBox Grid.Row="3" Grid.Column="1" Text="{Binding S.MaxUploadKBps}" Margin="0,8,0,0" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Encryption" VerticalAlignment="Center" Margin="0,8,0,0" />
+                        <ComboBox  Grid.Row="4" Grid.Column="1"
+                                   ItemsSource="{Binding EncryptionModes}"
+                                   SelectedItem="{Binding S.Encryption}" Margin="0,8,0,0" />
+                    </Grid>
+                    <WrapPanel Margin="0,12,0,0">
+                        <ui:ToggleSwitch Content="DHT" IsChecked="{Binding S.EnableDht}" Margin="0,0,24,0" />
+                        <ui:ToggleSwitch Content="LSD" IsChecked="{Binding S.EnableLsd}" Margin="0,0,24,0" />
+                        <ui:ToggleSwitch Content="uTP" IsChecked="{Binding S.EnableUtp}" Margin="0,0,24,0" />
+                        <ui:ToggleSwitch Content="Auto-resume on start" IsChecked="{Binding S.AutoResumeOnStart}" />
+                    </WrapPanel>
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Grid.Row="4" Margin="0,0,0,12" Padding="16">
+                <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="RuTracker login (optional, for full access)" Margin="0,0,0,6" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ui:TextBox     Grid.Column="0" PlaceholderText="username" Text="{Binding S.RuTrackerUser}" />
+                        <PasswordBox    Grid.Column="1" Margin="8,0,0,0"
+                                        PasswordChanged="Pwd_Changed" Tag="{Binding S}"
+                                        x:Name="PwdBox" />
+                    </Grid>
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Card Grid.Row="5" Margin="0,0,0,12" Padding="16">
+                <StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="User-Agent" Margin="0,0,0,6" />
+                    <ui:TextBox Text="{Binding S.UserAgent}" />
+                </StackPanel>
+            </ui:Card>
+
+            <ui:Button Grid.Row="6" Appearance="Primary" Content="Save" Icon="{ui:SymbolIcon Symbol=Save24}"
+                       HorizontalAlignment="Left" Command="{Binding SaveCommand}" />
+
+            <TextBlock Grid.Row="7" Margin="0,10,0,0"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                       Text="{Binding Status}" />
+        </Grid>
+    </ScrollViewer>
+</ui:Page>

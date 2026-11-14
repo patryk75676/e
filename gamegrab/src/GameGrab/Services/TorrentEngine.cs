@@ -13,15 +13,19 @@ public sealed class TorrentEngine : IAsyncDisposable
     private readonly ClientEngine _engine;
     private readonly HttpClient _http;
     private readonly Settings _settings;
+    private readonly QueueStore _queue;
     private readonly Dictionary<TorrentManager, TorrentItem> _map = new();
     private readonly Timer _poll;
 
     public ObservableCollection<TorrentItem> Items { get; } = new();
+    public event Action<TorrentItem>? TorrentCompleted;
+    public event Action<long, long>? RatesUpdated; // totalDown, totalUp (bytes/s)
 
-    public TorrentEngine(Settings settings, HttpClient http)
+    public TorrentEngine(Settings settings, HttpClient http, QueueStore queue)
     {
         _settings = settings;
         _http = http;
+        _queue = queue;
         Directory.CreateDirectory(settings.DownloadDir);
 
         var cacheDir = Path.Combine(
@@ -43,9 +47,9 @@ public sealed class TorrentEngine : IAsyncDisposable
             AllowLocalPeerDiscovery = settings.EnableLsd,
             AllowedEncryption = settings.Encryption switch
             {
-                "Forced" => new[] { EncryptionType.RC4Full },
-                "Disabled" => new[] { EncryptionType.PlainText },
-                _ => new[] { EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText }
+                "Forced" => new List<EncryptionType> { EncryptionType.RC4Full },
+                "Disabled" => new List<EncryptionType> { EncryptionType.PlainText },
+                _ => new List<EncryptionType> { EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText }
             },
         };
 
@@ -53,29 +57,61 @@ public sealed class TorrentEngine : IAsyncDisposable
         _poll = new Timer(_ => Poll(), null, 500, 500);
     }
 
-    public async Task<TorrentItem> AddMagnetAsync(string magnet, string? displayName = null)
+    public async Task RestoreAsync()
+    {
+        if (!_settings.AutoResumeOnStart) return;
+        foreach (var e in _queue.Entries.ToList())
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(e.Magnet))
+                    await AddMagnetAsync(e.Magnet!, e.Name, persist: false, paused: e.Paused);
+                else if (!string.IsNullOrEmpty(e.TorrentFile) && File.Exists(e.TorrentFile))
+                    await AddTorrentFileAsync(e.TorrentFile!, persist: false, paused: e.Paused);
+            }
+            catch { }
+        }
+    }
+
+    public async Task<TorrentItem> AddMagnetAsync(string magnet, string? displayName = null, bool persist = true, bool paused = false)
     {
         var link = MagnetLink.Parse(magnet);
         var tm = await _engine.AddAsync(link, _settings.DownloadDir);
-        return RegisterAndStart(tm, displayName ?? link.Name ?? "unknown");
+        var item = Register(tm, displayName ?? link.Name ?? "unknown", "magnet");
+        if (!paused) await tm.StartAsync();
+        if (persist)
+        {
+            _queue.Entries.Add(new QueueEntry { Magnet = magnet, Name = item.Name, SavePath = tm.SavePath, Paused = paused });
+            _queue.Save();
+        }
+        return item;
     }
 
     public async Task<TorrentItem> AddTorrentUrlAsync(string url, CancellationToken ct)
     {
         var bytes = await _http.GetByteArrayAsync(url, ct);
-        var torrent = await Torrent.LoadAsync(bytes);
-        var tm = await _engine.AddAsync(torrent, _settings.DownloadDir);
-        return RegisterAndStart(tm, torrent.Name);
+        var tmpDir = Path.Combine(Settings.Root, "torrents");
+        Directory.CreateDirectory(tmpDir);
+        var file = Path.Combine(tmpDir, $"{Guid.NewGuid():N}.torrent");
+        await File.WriteAllBytesAsync(file, bytes, ct);
+        return await AddTorrentFileAsync(file);
     }
 
-    public async Task<TorrentItem> AddTorrentFileAsync(string path)
+    public async Task<TorrentItem> AddTorrentFileAsync(string path, bool persist = true, bool paused = false)
     {
         var torrent = await Torrent.LoadAsync(path);
         var tm = await _engine.AddAsync(torrent, _settings.DownloadDir);
-        return RegisterAndStart(tm, torrent.Name);
+        var item = Register(tm, torrent.Name, "file");
+        if (!paused) await tm.StartAsync();
+        if (persist)
+        {
+            _queue.Entries.Add(new QueueEntry { TorrentFile = path, Name = torrent.Name, SavePath = tm.SavePath, Paused = paused });
+            _queue.Save();
+        }
+        return item;
     }
 
-    private TorrentItem RegisterAndStart(TorrentManager tm, string name)
+    private TorrentItem Register(TorrentManager tm, string name, string source)
     {
         var item = new TorrentItem
         {
@@ -83,11 +119,10 @@ public sealed class TorrentEngine : IAsyncDisposable
             State = TorrentState.Metadata,
             SavePath = tm.SavePath,
             Hash = tm.InfoHashes?.V1OrV2?.ToHex(),
-            Source = "torrent",
+            Source = source,
         };
         _map[tm] = item;
         Application.Current?.Dispatcher.Invoke(() => Items.Add(item));
-        _ = tm.StartAsync();
         return item;
     }
 
@@ -103,6 +138,14 @@ public sealed class TorrentEngine : IAsyncDisposable
         if (tm is not null) await tm.StartAsync();
     }
 
+    public async Task ForceRecheckAsync(TorrentItem item)
+    {
+        var tm = Find(item);
+        if (tm is null) return;
+        await tm.StopAsync();
+        await tm.HashCheckAsync(true);
+    }
+
     public async Task RemoveAsync(TorrentItem item, bool deleteFiles)
     {
         var tm = Find(item);
@@ -110,6 +153,15 @@ public sealed class TorrentEngine : IAsyncDisposable
         await _engine.RemoveAsync(tm, deleteFiles ? RemoveMode.CacheDataAndDownloadedData : RemoveMode.CacheDataOnly);
         _map.Remove(tm);
         Application.Current?.Dispatcher.Invoke(() => Items.Remove(item));
+        _queue.Entries.RemoveAll(q => q.Name == item.Name);
+        _queue.Save();
+    }
+
+    public string? GetMagnet(TorrentItem item)
+    {
+        var tm = Find(item);
+        var ih = tm?.InfoHashes?.V1OrV2?.ToHex();
+        return ih is null ? null : Sources.Trackers.BuildMagnet(ih, item.Name);
     }
 
     private TorrentManager? Find(TorrentItem item) =>
@@ -121,11 +173,13 @@ public sealed class TorrentEngine : IAsyncDisposable
         if (app is null) return;
         app.Dispatcher.BeginInvoke(new Action(() =>
         {
+            long totalDown = 0, totalUp = 0;
             foreach (var (tm, item) in _map)
             {
                 try
                 {
                     var m = tm.Monitor;
+                    var prevState = item.State;
                     item.State = tm.State switch
                     {
                         MonoTorrent.Client.TorrentState.Downloading => TorrentState.Downloading,
@@ -146,9 +200,16 @@ public sealed class TorrentEngine : IAsyncDisposable
                     item.Peers = tm.Peers.Leechs;
                     item.Seeds = tm.Peers.Seeds;
                     item.Eta = ComputeEta(tm);
+                    totalDown += m.DownloadRate;
+                    totalUp += m.UploadRate;
+
+                    if (prevState != TorrentState.Finished &&
+                        item.State == TorrentState.Finished)
+                        TorrentCompleted?.Invoke(item);
                 }
                 catch { }
             }
+            RatesUpdated?.Invoke(totalDown, totalUp);
         }));
     }
 

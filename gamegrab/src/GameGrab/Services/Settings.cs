@@ -19,7 +19,8 @@ public sealed class Settings
     public string Encryption { get; set; } = "Enabled";
     public List<string> Sources { get; set; } = new()
     {
-        "1337x", "TPB", "FitGirl", "DODI", "SteamRIP", "OnlineFix", "GOGGames", "RuTracker"
+        "1337x", "TPB", "FitGirl", "DODI", "SteamRIP", "OnlineFix",
+        "GOGGames", "RuTracker", "IGGGames", "KaOsKrew"
     };
     public string UserAgent { get; set; } =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
@@ -27,17 +28,27 @@ public sealed class Settings
     public string RuTrackerUser { get; set; } = "";
     public string RuTrackerPass { get; set; } = "";
 
-    public static string ConfigPath
+    public string Theme { get; set; } = "Dark";        // Dark | Light
+    public string Accent { get; set; } = "#3AAFFF";
+    public bool MinimizeToTray { get; set; } = true;
+    public bool StartMinimized { get; set; } = false;
+    public bool AutoResumeOnStart { get; set; } = true;
+    public bool ToastOnComplete { get; set; } = true;
+    public bool SequentialDownload { get; set; } = false;
+
+    public static string Root
     {
         get
         {
-            var root = Path.Combine(
+            var r = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "GameGrab");
-            Directory.CreateDirectory(root);
-            return Path.Combine(root, "settings.json");
+            Directory.CreateDirectory(r);
+            return r;
         }
     }
+
+    public static string ConfigPath => Path.Combine(Root, "settings.json");
 
     public static Settings Load()
     {
@@ -47,7 +58,12 @@ public sealed class Settings
             {
                 var json = File.ReadAllText(ConfigPath);
                 var s = JsonSerializer.Deserialize<Settings>(json);
-                if (s is not null) return s;
+                if (s is not null)
+                {
+                    foreach (var def in new Settings().Sources)
+                        if (!s.Sources.Contains(def)) s.Sources.Add(def);
+                    return s;
+                }
             }
         }
         catch { }

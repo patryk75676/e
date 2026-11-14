@@ -1,0 +1,79 @@
+<ui:Page
+    x:Class="GameGrab.Views.DownloadsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    xmlns:views="clr-namespace:GameGrab.Views"
+    Background="Transparent">
+    <Grid Margin="20,12,20,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,10"
+                   Text="Downloads" />
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <ui:Button Icon="{ui:SymbolIcon Symbol=Pause24}"           Content="Pause"       Command="{Binding PauseCommand}" />
+            <ui:Button Icon="{ui:SymbolIcon Symbol=Play24}"            Content="Resume"      Command="{Binding ResumeCommand}" Margin="8,0,0,0" />
+            <ui:Button Icon="{ui:SymbolIcon Symbol=ArrowSync24}"       Content="Recheck"     Command="{Binding RecheckCommand}" Margin="8,0,0,0" />
+            <ui:Button Icon="{ui:SymbolIcon Symbol=Delete24}"          Content="Remove"      Command="{Binding RemoveCommand}" Margin="8,0,0,0" />
+            <ui:Button Icon="{ui:SymbolIcon Symbol=FolderOpen24}"      Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="8,0,0,0" />
+            <Separator Margin="12,2,12,2" />
+            <ui:Button Icon="{ui:SymbolIcon Symbol=PauseCircle24}"     Content="Pause all"   Command="{Binding PauseAllCommand}" />
+            <ui:Button Icon="{ui:SymbolIcon Symbol=PlayCircle24}"      Content="Resume all"  Command="{Binding ResumeAllCommand}" Margin="8,0,0,0" />
+        </StackPanel>
+
+        <ui:DataGrid Grid.Row="2"
+                     ItemsSource="{Binding Items}"
+                     SelectedItem="{Binding Selected}"
+                     AutoGenerateColumns="False"
+                     IsReadOnly="True"
+                     SelectionMode="Single">
+            <ui:DataGrid.ContextMenu>
+                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                    <MenuItem Header="Pause"        Command="{Binding PauseCommand}" />
+                    <MenuItem Header="Resume"       Command="{Binding ResumeCommand}" />
+                    <MenuItem Header="Force recheck" Command="{Binding RecheckCommand}" />
+                    <Separator />
+                    <MenuItem Header="Open folder"  Command="{Binding OpenFolderCommand}" />
+                    <MenuItem Header="Copy magnet"  Command="{Binding CopyMagnetCommand}" />
+                    <Separator />
+                    <MenuItem Header="Remove…"      Command="{Binding RemoveCommand}" />
+                </ContextMenu>
+            </ui:DataGrid.ContextMenu>
+            <ui:DataGrid.Columns>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="2*" />
+                <DataGridTemplateColumn Header="State" Width="120">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                    Background="{Binding State, Converter={StaticResource StateColor}}">
+                                <TextBlock Text="{Binding State}" Foreground="Black" FontWeight="SemiBold" />
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Progress" Width="220">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}" Height="18" />
+                                <TextBlock Text="{Binding Progress, StringFormat={}{0:0.0}%}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" />
+                            </Grid>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Size" Binding="{Binding Size,     Converter={StaticResource BytesConv}}" Width="100" />
+                <DataGridTextColumn Header="Down" Binding="{Binding DownSpeed, Converter={StaticResource RateConv}}"  Width="90" />
+                <DataGridTextColumn Header="Up"   Binding="{Binding UpSpeed,   Converter={StaticResource RateConv}}"  Width="90" />
+                <DataGridTextColumn Header="Seeds" Binding="{Binding Seeds}" Width="60" />
+                <DataGridTextColumn Header="Peers" Binding="{Binding Peers}" Width="60" />
+                <DataGridTextColumn Header="ETA"   Binding="{Binding Eta}" Width="110" />
+            </ui:DataGrid.Columns>
+        </ui:DataGrid>
+    </Grid>
+</ui:Page>

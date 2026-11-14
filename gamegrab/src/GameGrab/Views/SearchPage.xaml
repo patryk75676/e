@@ -1,0 +1,100 @@
+<ui:Page
+    x:Class="GameGrab.Views.SearchPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    xmlns:views="clr-namespace:GameGrab.Views"
+    xmlns:vm="clr-namespace:GameGrab.ViewModels"
+    Background="Transparent">
+    <Grid Margin="20,12,20,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,10"
+                   Text="Find a release" />
+
+        <Grid Grid.Row="1" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ui:TextBox Grid.Column="0"
+                        x:Name="SearchBox"
+                        PlaceholderText="type a game, or paste a magnet / .torrent url and press Enter"
+                        Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                        KeyDown="SearchBox_KeyDown" />
+            <ui:Button Grid.Column="1" Appearance="Primary" Margin="8,0,0,0"
+                       Icon="{ui:SymbolIcon Symbol=Search24}" Content="Search" Command="{Binding SearchCommand}" />
+            <ui:Button Grid.Column="2" Margin="8,0,0,0"
+                       Icon="{ui:SymbolIcon Symbol=ClipboardPaste24}" Content="Paste" Command="{Binding PasteMagnetCommand}" />
+            <ui:Button Grid.Column="3" Margin="8,0,0,0"
+                       Icon="{ui:SymbolIcon Symbol=DocumentAdd24}" Content=".torrent" Command="{Binding AddTorrentFileCommand}" />
+            <ProgressBar Grid.Column="4" Width="90" Margin="8,0,0,0"
+                         IsIndeterminate="{Binding Searching}"
+                         Visibility="{Binding Searching, Converter={StaticResource BoolToVis}}" />
+        </Grid>
+
+        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+            <ItemsControl ItemsSource="{Binding Sources}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <ui:ToggleSwitch Content="{Binding Name}" IsChecked="{Binding Enabled}" Margin="0,0,14,6" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <CheckBox Content="only with seeds" IsChecked="{Binding OnlyWithSeeds}" Margin="12,6,14,6" />
+            <ui:TextBox PlaceholderText="filter title" Width="200"
+                        Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged, Delay=200}"
+                        Margin="0,0,0,6" />
+        </WrapPanel>
+
+        <ui:DataGrid Grid.Row="3"
+                     x:Name="ResultsGrid"
+                     ItemsSource="{Binding Results}"
+                     SelectedItem="{Binding Selected}"
+                     AutoGenerateColumns="False"
+                     IsReadOnly="True"
+                     CanUserSortColumns="True"
+                     SelectionMode="Single"
+                     MouseDoubleClick="ResultsGrid_DoubleClick">
+            <ui:DataGrid.ContextMenu>
+                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                    <MenuItem Header="Download" Command="{Binding AddSelectedCommand}" />
+                    <MenuItem Header="Copy magnet" Command="{Binding CopyMagnetCommand}" />
+                    <MenuItem Header="Open source page" Command="{Binding OpenPageCommand}" />
+                </ContextMenu>
+            </ui:DataGrid.ContextMenu>
+            <ui:DataGrid.Columns>
+                <DataGridTextColumn Header="Source"   Binding="{Binding Source}"    Width="110" />
+                <DataGridTextColumn Header="Title"    Binding="{Binding Title}"     Width="*" />
+                <DataGridTextColumn Header="Size"     Binding="{Binding Size}"      Width="110" />
+                <DataGridTextColumn Header="Seeds"    Binding="{Binding Seeders}"   Width="70" />
+                <DataGridTextColumn Header="Peers"    Binding="{Binding Leechers}"  Width="70" />
+                <DataGridTextColumn Header="Uploaded" Binding="{Binding Uploaded}"  Width="140" />
+            </ui:DataGrid.Columns>
+        </ui:DataGrid>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0">
+            <ui:Button Appearance="Primary"
+                       Icon="{ui:SymbolIcon Symbol=ArrowDownload24}"
+                       Content="Download selected"
+                       Command="{Binding AddSelectedCommand}" />
+            <TextBlock Margin="16,0,0,0" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                       Text="{Binding Status}" />
+        </StackPanel>
+    </Grid>
+</ui:Page>

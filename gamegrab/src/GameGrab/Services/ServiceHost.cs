@@ -6,6 +6,7 @@ namespace GameGrab.Services;
 public interface IServiceHost
 {
     Settings Settings { get; }
+    QueueStore Queue { get; }
     SearchAggregator Search { get; }
     TorrentEngine Torrents { get; }
     HttpDownloader Downloader { get; }
@@ -17,6 +18,7 @@ public interface IServiceHost
 public sealed class ServiceHost : IServiceHost
 {
     public Settings Settings { get; } = Settings.Load();
+    public QueueStore Queue { get; } = QueueStore.Load();
     public HttpClient Http { get; }
     public SearchAggregator Search { get; }
     public TorrentEngine Torrents { get; }
@@ -35,12 +37,18 @@ public sealed class ServiceHost : IServiceHost
             new OnlineFixSource(),
             new GogGamesSource(),
             new RuTrackerSource(),
+            new IggGamesSource(),
+            new KaOsKrewSource(),
         };
         Search = new SearchAggregator(sources, Http);
-        Torrents = new TorrentEngine(Settings, Http);
+        Torrents = new TorrentEngine(Settings, Http, Queue);
         Downloader = new HttpDownloader(Http);
     }
 
-    public void Start() { }
+    public void Start()
+    {
+        _ = Torrents.RestoreAsync();
+    }
+
     public async Task StopAsync() => await Torrents.DisposeAsync();
 }
