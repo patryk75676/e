@@ -1,4 +1,4 @@
-<ui:Page
+<Page
     x:Class="GameGrab.Views.DownloadsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -76,4 +76,4 @@
             </ui:DataGrid.Columns>
         </ui:DataGrid>
     </Grid>
-</ui:Page>
+</Page>

@@ -1,4 +1,4 @@
-<ui:Page
+<Page
     x:Class="GameGrab.Views.SearchPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -122,4 +122,4 @@
                        Text="{Binding Status}" />
         </StackPanel>
     </Grid>
-</ui:Page>
+</Page>

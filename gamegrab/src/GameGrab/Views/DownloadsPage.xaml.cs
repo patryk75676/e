@@ -1,5 +1,5 @@
+using System.Windows.Controls;
 using GameGrab.ViewModels;
-using Wpf.Ui.Controls;
 
 namespace GameGrab.Views;
 

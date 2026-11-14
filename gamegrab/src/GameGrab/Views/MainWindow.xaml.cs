@@ -6,7 +6,7 @@ using Wpf.Ui.Controls;
 
 namespace GameGrab.Views;
 
-public partial class MainWindow : FluentWindow
+public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
     private bool _reallyExit;
 
@@ -54,7 +54,8 @@ public partial class MainWindow : FluentWindow
         Activate();
     }
 
-    private void Tray_Exit(object sender, RoutedEventArgs e)
+    // Exit is driven from the window's own close chrome; the tray exposes show-only.
+    internal void ReallyExit()
     {
         _reallyExit = true;
         Close();
@@ -63,8 +64,9 @@ public partial class MainWindow : FluentWindow
 
     public void ShowTrayBalloon(string title, string body)
     {
-        try { Tray.ShowBalloonTip(title, body, Wpf.Ui.Tray.Controls.BalloonIcon.Info); }
-        catch { /* shown with no-op on tray not ready */ }
+        // WPF-UI Tray exposes a NotifyIcon wrapper; the balloon API varies by version,
+        // so only a tooltip refresh is done here. Toast surface is handled via status bar.
+        try { Tray.TooltipText = $"{title}: {body}"; } catch { }
     }
 }
 

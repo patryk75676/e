@@ -3,7 +3,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using GameGrab.Models;
 using GameGrab.ViewModels;
-using Wpf.Ui.Controls;
 
 namespace GameGrab.Views;
 

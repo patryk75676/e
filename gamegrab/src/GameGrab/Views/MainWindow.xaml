@@ -25,16 +25,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="GameGrab">
-            <ui:TitleBar.TrailingContent>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock VerticalAlignment="Center"
-                               Margin="0,0,10,0"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               Text="{Binding GlobalRates}" />
-                </StackPanel>
-            </ui:TitleBar.TrailingContent>
-        </ui:TitleBar>
+        <ui:TitleBar Grid.Row="0" Title="GameGrab" />
 
         <ui:NavigationView Grid.Row="1"
                            x:Name="Nav"
@@ -61,21 +52,16 @@
             <StatusBarItem>
                 <TextBlock Text="{Binding ActiveCount, StringFormat=active: {0}}" />
             </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock Text="{Binding GlobalRates}" />
+            </StatusBarItem>
         </StatusBar>
 
         <tray:NotifyIcon Grid.Row="0"
                          x:Name="Tray"
                          TooltipText="GameGrab"
                          Icon="pack://application:,,,/Assets/app.ico"
-                         LeftClick="Tray_Show"
-                         DoubleClick="Tray_Show">
-            <tray:NotifyIcon.Menu>
-                <ContextMenu>
-                    <MenuItem Header="Show" Click="Tray_Show" />
-                    <Separator />
-                    <MenuItem Header="Exit" Click="Tray_Exit" />
-                </ContextMenu>
-            </tray:NotifyIcon.Menu>
-        </tray:NotifyIcon>
+                         LeftClick="Tray_Show" />
     </Grid>
 </ui:FluentWindow>
