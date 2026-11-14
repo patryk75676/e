@@ -16,7 +16,7 @@ public partial class MainWindow : FluentWindow
         DataContext = new ShellViewModel(App.Host);
 
         var settings = App.Host.Settings;
-        if (settings.StartMinimized && settings.MinimizeToTray)
+        if ((settings.StartMinimized || App.StartMinimizedFlag) && settings.MinimizeToTray)
         {
             Loaded += (_, _) => Hide();
         }

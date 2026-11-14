@@ -9,10 +9,13 @@ public partial class App : Application
 {
     public static IServiceHost Host { get; private set; } = null!;
 
+    public static bool StartMinimizedFlag { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        StartMinimizedFlag = e.Args.Any(a => string.Equals(a, "--minimized", StringComparison.OrdinalIgnoreCase));
         Host = new ServiceHost();
         Host.Start();
         try { GameGrab.ViewModels.ThemeApplier.Apply(Host.Settings.Theme); } catch { }
